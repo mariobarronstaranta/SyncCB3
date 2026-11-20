@@ -1,0 +1,1255 @@
+Concrete Rhino REST API Specification
+Oct 20, 2026 · @Chris Kranich
+Automation Logic, LLC publishes this specification for third-party software developers
+who interface with the Concrete Rhino Automated Batching System.
+1. Purpose
+This specification defines the REST API that third-party software uses to exchange data
+with a Concrete Rhino Automated Batching System. Dispatch, office and quality-control
+software can use it to send orders, tickets, customers, mix designs and material settings
+to a plant, and to read back its orders, loads and batch results.
+It is written for software developers building that interface. It describes every resource,
+field, rule and reply the plant supports; anything it doesn't describe is not supported.
+2. Relationship to BCQCI
+The API is a branch of BCQCI, the Interface Specification Between Concrete
+Batching/Dispatching Software and Quality Control/Mix Design Software developed with
+Stonemont Solutions (version 3.4, November 2017).
+Item 	Value
+Document Concrete Rhino REST API Specification
+Publisher 	Automation Logic, LLC
+System 	Concrete Rhino Automated Batching System
+API version v1
+Based on 	BCQCI version 3.4 (November 2017), developed
+with Stonemont Solutions
+Revision 	2026-10-20 (see Appendix A)
+Concrete Rhino REST API Specification
+Page 1 of 35
+
+-- 1 of 35 --
+
+Kept from BCQCI: the resource names, the record and field names ( mix_code ,
+mc_quantity , bt_ticket and the rest), the unit and material type codes, and the
+request_status reply block.
+Changed: each plant computer answers only for itself, so URLs carry no plant code.
+JSON is the supported format.
+Added: orders, order status, order loads and tickets, which BCQCI 3.4 does not define;
+the JSON mix design upload; the error_detail reply field; all-or-nothing writes; the
+status ping with result ids for collecting new batch results; and API key authentication.
+Tickets work like the ticket command of the Universal Link (ULink) interface.
+Not implemented: the BCQCI items listed under Limitations (section 16).
+3. Conventions
+Must marks a requirement. A request that breaks one is refused, usually with the
+reason in error_detail .
+Should marks a recommendation.
+Field names, resource names and literal values are in code type. <angle brackets>
+mark a value the caller supplies.
+Codes in examples (plant 101 , order 445676 , mix 3000INT ) are sample values.
+4. Transport and methods
+Each plant computer runs its own copy of the API and answers only for itself. Software
+that serves several plants talks to each one at its own address.
+Transport: HTTP on the plant computer's web port (8080 unless the plant was set up
+otherwise).
+Format: JSON. Every request body and every response is a JSON object.
+Version: v1 . It is part of every URL.
+Methods: GET reads. PUT updates a record, or creates it if it doesn't exist. POST only
+creates. DELETE removes a ticket that hasn't started batching, and nothing else.
+Authentication: an API key on every request (section 4.1).
+Connection check: GET status/ answers whenever the plant computer's API is
+running (section 15.3).
+Concrete Rhino REST API Specification
+Page 2 of 35
+
+-- 2 of 35 --
+
+Field names are lower case and case-sensitive. Fields not listed in this document are
+ignored.
+4.1 Authentication
+Every request must carry an API key made at the plant. A request without a valid key gets
+401, and nothing is read or written.
+Sending the key. Put it in the Authorization header: Authorization: Bearer rk_… .
+The header X-API-Key: rk_… is accepted too. The key is case-sensitive: send it
+exactly as the plant showed it.
+Getting a key. The plant makes and deletes keys on its Settings > API Keys screen.
+Each program should have its own key, so one can be deleted without stopping the
+others.
+Shown once. The plant shows a key only when it is made and keeps only a hash of it. A
+lost key can't be recovered: the plant deletes it and makes a new one.
+Access. A key is read-only (GET) or read-write (GET, PUT, POST and DELETE). A read-
+only key sending anything but GET gets 403 Forbidden .
+Format. A key is rk_ followed by 64 lower-case hex digits. Treat it like a password:
+keep it out of URLs, logs and source code.
+Wrong keys. After 10 failed requests from one address, counting requests with no key,
+that address is refused until a minute has passed since its first failure, even with a
+good key. A good request doesn't reset the count. Programs behind one proxy or
+gateway share its address, and so share its lockout.
+Replies. Every 401 and 403 carries an error_detail saying why: no key, a wrong or
+deleted key, too many wrong keys, or a read-only key. If the plant database is busy
+while the key is checked, the reply is 503 Database is busy.
+Encryption. On the plant's local network plain HTTP works. Any connection from
+outside it should use HTTPS or a Tailscale connection to the plant, so the key can't be
+read in transit.
+curl -H "Authorization: Bearer rk_<your key>" http://<plant
+address>:8080/rhino_rest_api/v1/json/status/
+Concrete Rhino REST API Specification
+Page 3 of 35
+
+-- 3 of 35 --
+
+5. URLs
+Every request goes to http://<plant
+address>:8080/rhino_rest_api/v1/json/<resource>/<code>/<code2> . The code parts
+are optional, and what they mean depends on the resource.
+URL 	Method What it does
+plants/ 	GET 	Every plant record stored here
+plants/<code> 	GET 	This computer's own plant,
+whatever code is given
+plants/ or plants/<code> 	PUT,
+POST
+Add, update or rename plant
+records
+customers/ 	GET 	All customers
+customers/<cust_code> 	GET 	One customer
+customers/ or customers/<cust_code> 	PUT,
+POST
+Create or update customers
+customerlist/ 	GET 	Code and name of every
+customer
+materials/ 	GET 	All materials
+materials/<mat_code> 	GET 	One material
+materials/ or materials/<mat_code> 	PUT 	Update materials
+materiallist/ 	GET 	Code, name and type of every
+material
+mixdesigns/ 	GET 	All mixes with their components
+mixdesigns/<mix_code> 	GET 	One mix
+mixdesignlist/ 	GET 	Code and name of every mix
+mixdesigns/ or mixdesigns/<mix_code> 	PUT,
+POST
+Create mixes or replace their
+design
+orders/ 	GET 	Open orders (status 1–5)
+Concrete Rhino REST API Specification
+Page 4 of 35
+
+-- 4 of 35 --
+
+URL 	Method What it does
+orders/<date> or orders/<from>/<to> 	GET 	Orders wanted on those days,
+any status
+orders/<order_num> 	GET 	One order
+orders/ or orders/<order_num> 	PUT,
+POST
+Create or update orders
+orderslist/… 	GET 	Same as orders , short form
+orderstatus/<order_num> 	GET 	One order's status
+orderstatus/ or
+orderstatus/<order_num>
+PUT 	Change order status
+orderloads/<order_num> 	GET 	One order with its loads
+orderloadslist/<order_num> 	GET 	Same, loads in short form
+tickets/ or tickets/<ticket_num> 	PUT,
+POST
+Send or change tickets: loads
+ready to batch
+tickets/<ticket_num> 	DELETE Remove a ticket that hasn't
+started batching
+loads/ 	GET 	Every load that isn't canceled
+loads/<date> or loads/<from>/<to> 	GET 	Loads made on those days
+loads/<ticket> 	GET 	The newest load with that ticket
+number
+loadslist/… 	GET 	Same as loads , short form
+batchresults/ 	GET 	Every load that isn't canceled,
+with batched weights
+batchresults/<date> or
+batchresults/<from>/<to>
+GET 	Batch results for those days
+batchresults/<mix_code>/<from>/<to> 	GET 	Batch results of one mix for those
+days
+batchresults/<ticket> 	GET 	The newest load with that ticket
+number
+Concrete Rhino REST API Specification
+Page 5 of 35
+
+-- 5 of 35 --
+
+Dates in a URL are YYYY-MM-DD . Any code shaped like NNNN-NN-NN is read as a date, so
+don't use order numbers of that form. Under orders another code is an order number;
+under loads and batchresults it must be a ticket number, a whole number above 0, or
+the reply is 400. A date range covers whole days; a start after the end returns 400, and
+orders/<from>/<to> allows at most 93 days. orderstatus/ and orderloads/ need an
+order number (400 without one).
+A trailing slash is fine: orders and orders/ are the same.
+Query strings ( ?name=value ) are passed through, but no resource uses them yet.
+Codes with special characters must be URL-encoded: D & M is D%20%26%20M . A plus sign
+must be sent as %2B; a bare + is read as a space. A code that contains / can't be used in
+a URL even when encoded. Use the body's code field instead (section 16).
+Short forms ( …list ) return the same records with fewer fields, each wrapped in
+listitem instead of the record's own name.
+6. Responses
+Every response starts with a request_status block. Check request_status.status ,
+not the HTTP status line, which is always 200.
+{
+"request_status": { "status": 400, "msg": "BAD REQUEST", "detail": "Unknown
+mix_code." },
+"error_detail": "Order 445676: mix 3000XX not found."
+}
+URL 	Method What it does
+batchresultlist/… 	GET 	Same as batchresults , short
+form
+batchresults/since/<result_id> 	GET 	Results finished after that result
+id; batchresultlist/since/…
+for the short form
+status/ or status/<result_id> 	GET 	Ping: plant identity, clock,
+versions, newest result id and
+results pending
+Concrete Rhino REST API Specification
+Page 6 of 35
+
+-- 6 of 35 --
+
+status is an HTTP-style number. msg is its name.
+detail names the kind of result. Several results share a status , so use detail to
+tell them apart.
+error_detail appears only when something was rejected. It says which record and
+field were at fault, in plain words. Show it to the user or write it to a log; don't match on
+its wording.
+On a GET, the records follow request_status (see each resource).
+status msg 	detail 	When
+200 	OK 	Ok 	GET found records, or DELETE
+removed a ticket
+201 	CREATED 	Created 	PUT or POST created at least
+one record
+201 	UPDATED 	Updated 	PUT changed existing records
+only
+204 	NO CONTENT 	Database query did not
+return any results.
+GET found nothing
+400 	BAD REQUEST 	JSON Error 	A field can't be read, a value is
+out of range, a code is too long,
+a required field is missing, or
+the body has no array named
+for the resource
+400 	BAD REQUEST 	API URL inconsistant
+with body
+URL and body disagree; the
+URL is malformed; a needed
+code is missing; or a code isn't
+a date or ticket number where
+one is needed
+400 	BAD REQUEST 	Unknown cust_code. 	Order names a customer the
+plant doesn't have, or one
+deleted at the plant
+400 	BAD REQUEST 	Unknown mix_code. 	Order names a mix the plant
+doesn't have, or one deleted at
+the plant
+Concrete Rhino REST API Specification
+Page 7 of 35
+
+-- 7 of 35 --
+
+status msg 	detail 	When
+400 	BAD REQUEST 	Unsupported format. 	URL's format isn't json (or
+xml , which this specification
+doesn't cover)
+400 	BAD REQUEST 	(none) 	PUT or POST with an empty
+body, or a body that isn't valid
+JSON
+401 	UNAUTHORIZED 	No log in. 	No API key, a wrong or deleted
+key, or too many wrong keys
+from this address (section 4.1)
+403 	FORBIDDEN 	Forbidden 	A read-only key sending
+anything but GET (section 4.1)
+403 	FORBIDDEN 	plant_code is not this
+plant.
+A record's plant code isn't this
+plant's
+404 	NOT FOUND 	Record not found. 	PUT to a material or order
+status that doesn't exist; a
+ticket whose order, extra
+product or ticket number isn't
+at the plant; a mix component
+whose material isn't at the
+plant
+404 	NOT FOUND 	Unsupported resource. 	PUT or POST plants/<code>
+for a plant that doesn't exist
+404 	NOT FOUND 	(none) 	Unknown resource name
+405 	METHOD NOT
+ALLOWED
+(none) 	DELETE of anything but a
+ticket
+409 	CONFLICT 	Http POST - Record
+already exists.
+POST of a record that exists,
+POST to orderstatus , or a
+rename onto a code in use
+409 	CONFLICT 	Order already has loads. 	Mix change on an order that
+has loads or is past Weather
+Concrete Rhino REST API Specification
+Page 8 of 35
+
+-- 8 of 35 --
+
+The (none) rows have status and msg only.
+7. Data rules
+A PUT changes only the fields it sends; every field it leaves out keeps its stored value.
+Sent with a value: the stored value is replaced.
+Sent as "" : a text field is blanked. A blank code ( cust_code , mix_code , order_num , a
+plant code) counts as not sent.
+Not sent: nothing changes. On a new record the field gets its default.
+Request body. A PUT or POST body is an array named for the resource, with each record
+wrapped in its singular name: {"orders": [{"order": {...}}, {"order": {...}}]} .
+One request can carry many records, except when the URL names a code: then the array
+must hold exactly one.
+status msg 	detail 	When
+409 	CONFLICT 	Conflicts with what is
+stored.
+A code deleted at the plant; a
+code another product already
+uses; a material sent with a
+different type; a customer
+name already in use; a ticket
+that has started batching or
+was canceled, a ticket for a
+canceled order, a ticket
+number still open on another
+order, a truck deleted at the
+plant; a mix being batched, or a
+mix component sent as a
+different type
+409 	CONFLICT 	Database Error. 	The database refused the
+write
+501 	NOT
+IMPLEMENTED
+(none) 	Any other HTTP method
+503 	SERVICE
+UNAVAILABLE
+Database is busy. 	The plant database is busy; try
+again
+Concrete Rhino REST API Specification
+Page 9 of 35
+
+-- 9 of 35 --
+
+All or nothing. The plant checks every record before it writes any. If one is rejected,
+nothing in the request is saved and error_detail names the record ("Record 3: ...", or the
+code when the URL names one, such as "Ticket 100050: ..."). Records that pass are written
+together in one transaction. Plants are the exception (section 8).
+Which record. When the URL names a code, that code picks the record and the body's
+code may rename it. Without one, the body's code picks the record.
+Numbers may be sent as JSON numbers or as strings: 5 , 5.0 and "5" are the same.
+true and false count as 1 and 0, and null or "" counts as not sent. A string that isn't a
+number is rejected with error_detail naming the field. Whole-number fields accept
+5.0 but not 5.5 .
+Dates in a body may be YYYY-MM-DD , MM-DD-YYYY or MM/DD/YYYY , with or without
+leading zeros, for years 2000 to 2099. The plant can't tell a day-first date from a month-
+first one: 05-03-2026 is read as May 3, and only a day above 12 ( 19-03-2026 ) is refused.
+Send YYYY-MM-DD to be safe. Responses always use YYYY-MM-DD .
+Times may be H:MM , HH:MM or HH:MM:SS , 24-hour, and nothing else: 8:00 PM and 8:5
+are refused. They are stored to the minute.
+Text length. Text longer than a field holds is cut to fit, except codes that pick a record
+( order_num , mix_code , mc_code , truck_num , driver_name ), which are refused with
+400. Limits are given with each resource.
+Responses send some numbers as strings (for example "mat_dosagetype": "0" ). Read
+every field so that either form works.
+8. Plants
+Each plant computer has one plant code of its own (for example 101 ). Every
+mat_plantcode , cust_plantcode and order plant_code you send is checked against it.
+Field 	Type 	Notes
+plant_code 	text, up to 7 	Required on PUT/POST; a code in the URL counts.
+Matched without regard to case
+plant_name 	text, up to 47
+plant_address text, up to 95
+Concrete Rhino REST API Specification
+Page 10 of 35
+
+-- 10 of 35 --
+
+GET plants/ returns every plant record stored on this computer, except deleted ones:
+{ "request_status": {...}, "plants": [ { "plant": { "plant_code": "101",
+"plant_name": "Kenai, AK", "plant_address": "Kenai, AK" } } ] }
+GET plants/<code> returns this computer's own plant as a single "plant": {...}
+object, whatever code is given.
+PUT or POST plants/ adds a plant record, or with PUT updates the one with the same
+plant_code ; POST of an existing plant returns 409. PUT plants/<code> updates the
+plant with that code, and a different plant_code in the body renames it; without one, the
+code stays. An unknown code returns 404 Unsupported resource.
+Plants work differently from the other resources:
+A field left out is blanked, not kept (except the code, above).
+Records are written one at a time, in order, without a transaction. The first record that
+fails stops the request; records before it stay saved, and error_detail says so.
+Changing the code of this computer's own plant changes the plant code every other
+request is checked against.
+9. Customers
+PUT creates a customer that doesn't exist and updates one that does. POST only creates.
+Customer codes match exactly but without regard to case: cash finds Cash . A customer
+deleted at the plant isn't returned by GET, and a PUT or POST of its code returns 409
+Conflicts with what is stored. The same customer twice in one request is refused
+(400).
+Field 	GET 	PUT/POST 	Notes
+cust_code 	yes 	required 	Up to 15 characters. Optional in
+the body when the URL names
+the customer
+cust_name 	yes 	required for a
+new customer
+Up to 64. No two customers
+may have the same name,
+matched with case (409)
+Concrete Rhino REST API Specification
+Page 11 of 35
+
+-- 11 of 35 --
+
+GET customers/ returns "customers": [{"customer": {...}}] , ordered by credit
+type, then code. GET customers/<code> returns one "customer": {...} . GET
+customerlist/ returns "customerlist": [{"listitem": {"cust_code": ...,
+"cust_name": ...}}] .
+New customers start as COD, price tier 1, no discount and not tax exempt. Discount and
+tax-exempt status can't be set through the API, and a PUT never changes them.
+Rename: PUT customers/Cash with "cust_code": "CASH2" in the body renames the
+customer. A rename onto a code that's already in use returns 409, and a rename that
+changes only the case of the code is ignored. When the customer in the URL doesn't exist,
+the body's code must match the URL's (400 otherwise).
+Field 	GET 	PUT/POST 	Notes
+cust_first_name yes: the whole
+contact name
+yes 	Joined with cust_last_name
+into one contact name, up to
+64. Sending either one
+replaces the whole contact
+name with what was sent
+cust_last_name 	no 	yes 	See cust_first_name
+cust_address 	yes 	yes 	The billing address, up to 95
+cust_bill_to 	no 	yes 	Billing address; overrides
+cust_address if both are sent
+cust_phone 	yes 	yes 	Up to 31
+cust_mobile 	yes 	yes 	Up to 31
+cust_fax 	yes 	yes 	Up to 31
+cust_email 	yes 	yes 	Up to 63
+cust_udf1 	yes 	yes 	Credit type: 1 Credit, 2 COD, 3
+Bad credit. Anything else
+returns 400
+cust_udf2 	yes: discount 	yes: price tier 1–3 See the open question below
+cust_plantcode 	no 	optional 	If sent, must be this plant's
+code (403 otherwise)
+cust_id 	no 	optional 	Record id for a new customer
+Concrete Rhino REST API Specification
+Page 12 of 35
+
+-- 12 of 35 --
+
+PUT /rhino_rest_api/v1/json/customers/
+{ "customers": [ { "customer": {
+"cust_code": "JF100", "cust_name": "Johnson Flatwork",
+"cust_first_name": "Mike", "cust_last_name": "Johnson",
+"cust_address": "3211 Providence Dr, Anchorage, AK 99508",
+"cust_phone": "907-555-0100", "cust_udf1": 1 } } ] }
+Open question: cust_udf2 reads back the discount but is written as the price tier. A
+client that reads a customer and sends it back may get a 400 (a discount outside 1–3) or
+set the wrong tier. Until this is settled, don't send cust_udf2 .
+10. Materials
+Materials can be read and updated but not created: each one is tied to a bin and its plant
+wiring. A PUT or POST for an unknown material returns 404, and a POST for a known one
+returns 409, so POST never succeeds. Material codes are case-sensitive, unlike customer
+and mix codes.
+Field 	GET 	PUT 	Notes
+mat_code 	yes 	required 	Up to 19 characters. Optional
+in the body when the URL
+names the material; then a
+different code renames it. A
+code another product already
+uses returns 409
+mat_name 	yes 	ignored 	Same as mat_code
+mat_plantcode 	yes 	optional 	If sent, must be this plant's
+code (403 otherwise)
+mat_type 	yes 	optional 	Type code (table below). It
+must be in the stored type's
+family; another family or an
+unknown code returns 409
+mat_source 	yes 	yes 	Up to 9 characters
+mat_spgr 	yes 	yes 	Specific gravity, more than 0
+and at most 10
+Concrete Rhino REST API Specification
+Page 13 of 35
+
+-- 13 of 35 --
+
+GET materials/ returns "materials": [{"material": {...}}] . GET
+materials/<code> returns one "material": {...} . GET materiallist/ returns
+"materiallist": [{"listitem": {"mat_code", "mat_name", "mat_type"}}] .
+A PUT never changes a material's batching setup, cost, description, inventory settings or
+admixture sequence and delay.
+PUT /rhino_rest_api/v1/json/materials/Agg1
+{ "materials": [ { "material": {
+"mat_plantcode": "101", "mat_code": "Sand", "mat_type": 3,
+"mat_source": "Pit 22", "mat_spgr": 2.61,
+"mat_absorption": 1.2, "mat_totalmoisture": 4.4 } } ] }
+This renames Agg1 to Sand and sets its source, specific gravity, absorption and moisture.
+Field 	GET 	PUT 	Notes
+mat_absorption 	yes, every material aggregates
+only
+Absorption %
+mat_totalmoisture yes, every material aggregates
+only
+Total moisture %
+mat_dosagetype 	admixtures: 0 or 1;
+others: "0"
+admixtures
+only
+0 per yd³/m³; 1 or 2 per
+hundredweight of cement,
+both stored and read back as
+1. 3 (per load) returns 400
+mat_ssd 	aggregates 	ignored 	Always "1" (SSD)
+mat_order 	always 0 	ignored
+mat_price 	yes 	ignored
+mat_type Meaning 	Sent by GET for
+1, 2, 3 	Coarse, fine, any aggregate 	3: every aggregate
+4, 5, 6 	Cement, cement alternative, any cement 6: every cement and fly ash
+7 	Admixture 	7
+8 	Water 	8
+Concrete Rhino REST API Specification
+Page 14 of 35
+
+-- 14 of 35 --
+
+11. Mixes
+Mixes can be read, created and changed. A PUT or POST takes the same shape GET
+returns, so a mix can be read, edited and sent back (section 11.1).
+GET mixdesigns/ returns every mix, and GET mixdesigns/<mix_code> returns one as a
+single "mixdesign" object. The list form looks like this:
+{ "request_status": {...},
+"mixdesigns": [ { "mixdesign": {
+"mixinfo": { "mix_plantcode": "101", "mix_code": "3000INT", ... },
+"mixcomponents": [ { "mixcomponent": { "mc_code": "Cem1", ... } } ] } }
+] }
+GET mixdesignlist/ returns "mixdesignlist": [{"listitem": {"mix_code",
+"mix_name"}}] .
+mixinfo field 	Meaning
+mix_plantcode This plant's code
+mix_code 	Mix code, up to 19 characters
+mix_name 	Description
+mix_unittype 	0 US (yd³), 1 metric (m³)
+mix_maxsize 	Largest load
+mix_slump 	Slump
+mix_price 	Price per unit
+mix_mixtime 	Mixing time, minutes
+mix_air 	Air factor
+mix_ssd 	0 oven-dry weights, 1 SSD
+mix_yield 	Yield
+mix_notes 	Notes
+Concrete Rhino REST API Specification
+Page 15 of 35
+
+-- 15 of 35 --
+
+mixcomponent field Meaning
+mc_mixcode 	The mix's code
+mc_code 	Material code
+mc_name 	Material name
+mc_type 	Material type (section 10)
+mc_quantity 	Amount per yd³ or m³
+mc_unit 	Unit code (below)
+mc_order 	Batching order
+mc_source 	Material source
+mc_spgr 	Specific gravity
+mc_absorption 	Absorption %
+Unit code Unit
+2 	feet
+6 	pounds
+7 	short tons
+10 	fluid ounces
+11 	gallons
+16 	cubic yards
+26 	hours
+106 	kilograms
+107 	metric tons
+110 	milliliters
+111 	liters
+116 	cubic meters
+Concrete Rhino REST API Specification
+Page 16 of 35
+
+-- 16 of 35 --
+
+11.1 Sending a mix
+PUT mixdesigns/ or mixdesigns/<mix_code> creates a mix that doesn't exist and
+changes one that does. POST only creates. The body is the shape GET returns, inside a
+mixdesigns array:
+PUT /rhino_rest_api/v1/json/mixdesigns/4000EXT
+{ "mixdesigns": [ { "mixdesign": {
+"mixinfo": { "mix_code": "4000EXT", "mix_name": "4000 PSI Exterior",
+"mix_price": 131.50,
+"mix_slump": 5, "mix_mixtime": 1.5, "mix_air": 6,
+"mix_notes": "air entrained" },
+"mixcomponents": [
+{ "mixcomponent": { "mc_code": "Sand", "mc_quantity": 1800 } },
+{ "mixcomponent": { "mc_code": "Cement", "mc_quantity": 564 } },
+{ "mixcomponent": { "mc_code": "Water", "mc_quantity": 32 } },
+{ "mixcomponent": { "mc_code": "AEA", 	"mc_quantity": 22.5 } } ] } }
+] }
+Unit code Unit
+0 	none or other
+mixinfo field 	New mix Change 	Notes
+mix_code 	required renames the mix 	Up to 19 characters; a longer one is
+refused. Matched without regard to
+case. Taken from the URL when one
+is given; a different code in the
+body renames the mix, but must
+match the URL when the mix
+doesn't exist (400). A code another
+product has, or a mix deleted at the
+plant, returns 409. A code that
+differs only in case changes the
+stored code's case
+mix_name 	required yes 	Up to 63 characters
+mix_unittype 	default 0 only with
+mixcomponents
+0 US (yd³), 1 metric (m³). Anything
+else returns 400
+Concrete Rhino REST API Specification
+Page 17 of 35
+
+-- 17 of 35 --
+
+mixinfo field 	New mix Change 	Notes
+mix_price 	default 0 yes 	Price per unit, 0 or more
+mix_slump 	default 4 yes 	0 or more
+mix_maxsize 	default
+10
+yes 	Largest load, more than 0
+mix_mixtime 	default 0 yes 	Minutes, 0 or more
+mix_air 	default 0 yes 	Air factor, 0 or more
+mix_ssd 	default 1 yes 	0 oven-dry weights, 1 SSD. Anything
+else returns 400
+mix_yield 	default 1 yes 	0 or more
+mix_notes 	optional 	yes 	Up to 63 characters
+mix_plantcode optional 	optional 	If sent, must be this plant's code
+(403 otherwise)
+mixcomponent field 	Notes
+mc_code 	Required, up to 19 characters. A material at
+the plant, spelled as GET materials/
+returns it (404 otherwise). It must be an
+aggregate, cement, water or admixture (400
+otherwise)
+mc_quantity 	Required, 0 or more. Same meaning as on
+GET
+mc_unit 	Optional. If sent, it must be the unit the plant
+uses for that material (400 otherwise): 6
+pounds for aggregates, cement and weighed
+water, 11 gallons for metered water, 10 fluid
+ounces for admixtures. Metric mixes use 106,
+111 and 110
+mc_order 	Optional, 0 or more. Batching order; without
+it, the component's place in the list
+Concrete Rhino REST API Specification
+Page 18 of 35
+
+-- 18 of 35 --
+
+Leave mixcomponents out to change only mixinfo . Send it and it is the whole design:
+any component it doesn't list is removed from the mix. An empty list is refused (400).
+A new mix needs mix_name and at least one component.
+Changing mix_unittype needs mixcomponents in the same request, with the
+amounts in the new units.
+A mix can hold up to 24 components, each material once (400 otherwise). The same
+mix twice in one request is refused (400).
+A mix that is being batched right now returns 409. Try again when the load is done.
+Loads queued for the mix stay.
+A mix deleted at the plant isn't returned by GET, and a PUT or POST of its code returns
+409.
+Orders and loads stay attached to a renamed mix.
+The reply is 201 Created if the request made at least one new mix, otherwise 201
+Updated .
+12. Orders
+An order is found by its order number, order_num , which is the dispatch system's own
+number for it. PUT creates an order that doesn't exist and updates one that does,
+including PUT orders/<order_num> for a new number. POST only creates.
+mixcomponent field 	Notes
+mc_type 	Optional. If sent, it must be the material's
+family (409 otherwise)
+mc_mixcode 	Optional. If sent, it must be the mix's code,
+old or new (400 otherwise)
+mc_name , mc_source , mc_spgr ,
+mc_absorption
+Ignored. Change them with PUT materials/
+Concrete Rhino REST API Specification
+Page 19 of 35
+
+-- 19 of 35 --
+
+12.1 Sending an order
+Field 	New order 	Update 	Notes
+order_num 	required 	optional 	Up to 31 characters; a longer one is
+refused. Taken from the URL when
+one is given; the body must then
+match it (400 otherwise)
+cust_code 	required 	changes the
+customer
+An existing customer, matched
+without regard to case. A code the
+plant doesn't have, or a customer
+deleted at the plant, gets 400
+Unknown cust_code.
+mix_code 	required 	changes the mix An existing mix, matched without
+regard to case. A code the plant
+doesn't have, or a mix deleted at
+the plant, gets 400 Unknown
+mix_code. See "Changing the mix"
+quantity 	required 	changes the
+quantity
+More than 0. The mix and its per-
+yard extras follow; per-load extras
+follow num_loads
+status_id 	optional,
+default 1
+changes the
+status
+1–7 (table below). A new order
+can't start at 6 or 7
+wanted_date 	optional 	yes 	A date, or a date and time ( "2025-
+03-19 13:30" ). "" counts as not
+sent, so a wanted date can't be
+cleared
+wanted_time 	optional 	yes 	Defaults to 06:00 when only a date
+is sent. A time alone keeps the
+order's date; on a new order a time
+alone is ignored
+load_size 	optional 	yes 	More than 0. Send it: a new order
+without one has load size 0
+Concrete Rhino REST API Specification
+Page 20 of 35
+
+-- 20 of 35 --
+
+PUT /rhino_rest_api/v1/json/orders/
+{ "orders": [ { "order": {
+"order_num": "445676", "plant_code": "101", "cust_code": "Cash",
+"delivery_addrs": "3211 Providence Dr, Anchorage, AK 99508",
+"wanted_date": "2025-03-19", "wanted_time": "13:30",
+"mix_code": "3000INT", "quantity": 5, "load_size": 5, "num_loads": 1 } }
+] }
+The reply is 201 Created if the request made at least one new order, otherwise 201
+Updated .
+A new order takes its price from the mix unless mix_price is sent. Travel time (15 min)
+and spacing (30 min) are fixed defaults, not plant settings; the plant can change them on
+the order screen. New orders get tax region 2 (section 16).
+Changing the mix is allowed only while the order has no loads and its status is Send, Will
+call or Weather (1–3). Otherwise the reply is 409 Order already has loads. and nothing
+is saved.
+Field 	New order 	Update 	Notes
+num_loads 	optional 	yes 	More than 0. Not stored. When
+quantity changes, it sets the
+quantity of the order's per-load
+extras; without it the plant uses
+quantity ÷ load_size , rounded
+up
+delivery_addrs optional 	yes 	Up to 95 characters
+po_num 	optional 	yes 	Up to 31 characters
+plant_code 	optional 	optional 	If sent, must be this plant's code
+(403 otherwise)
+slump 	optional,
+default 3
+yes 	Target slump, a number
+notes 	optional 	yes 	Delivery instructions, up to 255
+characters
+mix_price 	optional 	re-prices the
+mix
+Price per unit of the mix, 0 or more.
+Without it a new order takes the
+mix's catalog price
+Concrete Rhino REST API Specification
+Page 21 of 35
+
+-- 21 of 35 --
+
+Setting an order to Complete or Canceled also removes its loads that haven't started and
+parks the ones that have, the same as doing it on the order screen. Canceling also returns
+the order's inventoried extras to inventory.
+12.2 Reading orders
+GET orders/ : open orders (status 1–5), soonest first by wanted time less travel time.
+Orders with no wanted date come first.
+GET orders/<date> or orders/<from>/<to> : orders wanted on those days, any
+status, at most 93 days. A start after the end returns 400.
+GET orders/<order_num> : one order, as a single "order": {...} .
+orderslist/ in place of orders/ gives listitem records with order_num ,
+status_id , qty_required and qty_remaining only.
+An order as read can't be sent back unchanged: it carries the customer's name, not
+cust_code .
+status_id Status
+1 	Send (new)
+2 	Will call
+3 	Weather
+4 	Loading
+5 	On hold
+6 	Complete
+7 	Canceled
+Field 	Meaning
+order_num 	Order number
+status_id 	Status (table above)
+qty_required 	Ordered
+qty_remaining 	Ordered but not yet scheduled as a load.
+Queued loads count as scheduled
+Concrete Rhino REST API Specification
+Page 22 of 35
+
+-- 22 of 35 --
+
+13. Order status and order loads
+13.1 Order status
+PUT orderstatus/ changes the status of existing orders and nothing else. Each record
+needs order_num (or the URL's orderstatus/<order_num> , which the body must then
+match) and status_id 1–7. A plant_code , if sent, must be this plant's (403 otherwise).
+All other fields are ignored, even ones that couldn't be read.
+Field 	Meaning
+wanted_date 	"YYYY-MM-DD HH:MM" , or "" if none was
+given
+load_size 	Load size
+customer 	Customer name
+contact , phone_number , cell_number ,
+discount
+From the customer record
+mix_id , mix_code , description 	The order's mix
+price 	The order's price per unit for its mix: the
+mix_price sent or the price set on the
+order screen, else the mix's catalog price
+when the order was made. Before the
+customer's discount
+slump , metric 	From the order and mix
+mix_time 	Mixing time, seconds ( mix_mixtime on
+mixes is in minutes)
+travel_time , spacing 	Minutes
+po_num , delivery_addrs , notes 	Text
+return_allowed , cash , backtoback , plus ,
+estimate , project_id , use_cert ,
+use_report
+Plant-side order settings
+last_load_start 	When the newest load started batching, or
+""
+Concrete Rhino REST API Specification
+Page 23 of 35
+
+-- 23 of 35 --
+
+PUT /rhino_rest_api/v1/json/orderstatus/
+{ "orderstatus": [ { "order": { "order_num": "445676", "status_id": 6 } } ] }
+An unknown order returns 404 Record not found. , and nothing in the request is
+saved.
+POST returns 409; use PUT.
+The reply is 201 Updated .
+GET orderstatus/<order_num> returns the order with all the fields listed under Orders,
+as a one-element array: "orderstatus": [{"order": {...}}] . An unknown order
+returns 204 with an empty array, and orderstatus/ with no order number returns 400.
+13.2 Order loads
+GET orderloads/<order_num> returns the order with all its loads:
+{ "request_status": {...},
+"order": { "order_num": "445676", "status_id": 4, ...,
+"loads": [ { "load": { "ticket": 100050, "load_size": 7, ... } }
+] } }
+The order fields are the same as under Orders. The load fields are listed under Loads.
+Every load of the order is returned. An order with no loads yet returns "loads": [] .
+Count the array for the number of loads.
+An unknown order returns 204, and orderloads/ with no order number returns 400.
+orderloadslist/<order_num> returns the same, with each load as a short listitem .
+14. Tickets
+A ticket is one load of an order, queued at the plant ready to batch. PUT tickets/ or
+tickets/<ticket_num> adds a ticket, or changes it when the plant already has that ticket
+number and it hasn't started batching. POST only adds. One request can also create the
+order, the truck and the driver.
+Tickets work like the ticket command of the Universal Link (ULink) interface. One
+message carries a load with its order, customer, truck, driver, extra products and ticket
+totals, and the plant queues it ready to batch. The differences: a resent ticket number
+changes that ticket instead of adding a second load, unknown products are refused rather
+than skipped, and every reply says what the plant did.
+Concrete Rhino REST API Specification
+Page 24 of 35
+
+-- 24 of 35 --
+
+14.1 Sending a ticket
+Truck numbers and driver names match without regard to case.
+Field 	New ticket 	Change 	Notes
+ticket_num 	optional 	picks the ticket 	Whole number above 0. Taken from
+the URL when one is given; the
+body must then match it. Without it
+the plant numbers the ticket when
+it prints, the reply's ticket_num is
+0, and the API can't change or
+remove it
+order_num 	required 	required 	The order the ticket is for, up to 31
+characters; a longer one is refused
+load_size 	required 	changes it 	More than 0
+truck_num 	required 	moves the ticket 	Up to 15 characters; a longer one is
+refused. Added at the plant if it
+isn't there
+driver_name optional 	changes the
+driver
+Up to 15 characters; a longer one is
+refused. Added at the plant if it
+isn't there. It becomes the load's
+driver and the driver of the load's
+truck. Without it, see section 14.2
+message 	optional 	yes 	Load message. Longer than 255
+characters is cut
+order 	needed for a
+new order
+changes the
+order
+The fields of PUT orders. A new
+order_num needs cust_code ,
+mix_code and quantity
+extras 	optional 	replaces the
+ticket's extras
+Up to 13 (table below). An empty
+array removes them
+totals 	optional 	replaces them 	subtotal , tax ,
+cumulative_total , grand_total ,
+0 or more. They print on the ticket;
+a 0 is left off
+Concrete Rhino REST API Specification
+Page 25 of 35
+
+-- 25 of 35 --
+
+The ticket printout has room for 7 characters of code, 15 of description and 3 of unit.
+Longer values are cut on the printout only; billing uses the full product.
+PUT /rhino_rest_api/v1/json/tickets/100050
+{ "tickets": [ { "ticket": {
+"order_num": "445676", "load_size": 7, "truck_num": "12", "driver_name":
+"Steve",
+"message": "don't drive on grass",
+"order": { "cust_code": "JOHN01", "mix_code": "3000INT", "quantity": 14,
+"mix_price": 118.50, "slump": 5, "notes": "gate code 1234",
+"wanted_date": "2026-10-20", "wanted_time": "13:30" },
+"extras": [ { "code": "FUEL", "load_qty": 1, "order_qty": 1, "price":
+15.00,
+"description": "Fuel Surcharge", "unit": "EA" } ],
+"totals": { "subtotal": 844.50, "tax": 46.45, "grand_total": 890.95 } } }
+] }
+Extra field 	Notes
+code 	Required. A product at the plant that isn't a mix,
+matched without regard to case. Not found or
+deleted at the plant: 404. A mix: 400. Each code
+once per ticket
+load_qty 	Quantity on this ticket, 0 or more
+order_qty 	Running total for the whole order, 0 or more. It sets
+the order's billable line for that product, replacing
+the last total rather than adding to it. Left out,
+billing doesn't change
+price 	Unit price on the ticket; without it, the product's
+catalog price. When sent, it also becomes the price
+of the order's billable line. Without it a new line
+takes the catalog price and an existing line keeps
+its price
+amount 	Line total on the ticket, 0 or more. Without it,
+load_qty × price
+description , unit Printed on the ticket. Without a description, the
+product's
+Concrete Rhino REST API Specification
+Page 26 of 35
+
+-- 26 of 35 --
+
+{
+"request_status": { "status": 201, "msg": "CREATED", "detail": "Created" },
+"tickets": [ { "ticket": { "ticket_num": 100050, "load_id": 1, "order_num":
+"445676",
+"result": "created", "added_at_plant": ["order 445676", "driver Steve",
+"truck 12"] } } ]
+}
+The reply is 201 Created if the request added at least one ticket, otherwise 201 Updated .
+Each ticket's result is created or updated , and added_at_plant lists the order, truck
+and driver the request added. Check that list: a typo in a truck number adds a new truck.
+14.2 What the plant does with a ticket
+The load is queued as Ready (status 3) on the loading screen. The operator still starts
+batching.
+Sending a ticket number again changes that ticket. Only the fields sent change:
+extras or totals left out are kept, and the load keeps its mix, even one changed on
+the load screen.
+A ticket that has started batching, or was canceled at the plant, can't be changed: 409
+Conflicts with what is stored. , and nothing is saved.
+A ticket number used before on another order is history if that load is finished, and a
+new ticket is made. If that load isn't finished, the reply is 409.
+A ticket for an order the plant marked Complete re-opens it (status 4, Loading). A
+ticket for a Canceled order gets 409, unless its order block sends a new status_id .
+A ticket can't set its order to Complete or Canceled (400). Use orderstatus for that.
+An order block can't change the mix of an order that has loads (409 Order already
+has loads. ), so a resent ticket never changes its mix.
+Two tickets for the same order, or the same ticket twice, in one request are refused
+(400). Send them in separate requests.
+Drivers. A driver_name becomes the load's driver and the driver of the load's truck,
+as when the load screen changes a load's driver. Without one, a ticket moved to
+another truck takes that truck's driver, and sending the truck the load is already on
+leaves the driver as it is.
+New trucks get capacity 12 (or the load size, if larger) and the ticket's driver, else the
+load's, else the plant's first driver (normally Unassigned). A plant with no drivers at all
+gets a driver named Unassigned, listed in added_at_plant . A truck number that was
+Concrete Rhino REST API Specification
+Page 27 of 35
+
+-- 27 of 35 --
+
+deleted at the plant gets 409.
+Refused tickets get these replies. error_detail names the ticket ("Ticket 9: ..."), or
+"Record N" when it has no ticket_num .
+Tickets are checked one after another, so when an earlier ticket fails its own checks, its
+error is the one returned.
+Case 	Reply
+No tickets array, or an empty one 	400 JSON Error
+A field that can't be read, a negative quantity,
+price, amount or total, load_size 0 or less, a
+code that is too long, the same extra code
+twice, more than 13 extras
+400 JSON Error
+A new ticket without load_size or
+truck_num ; an order block that sets Complete
+or Canceled; an extra that is a mix
+400 JSON Error
+order_num and order.order_num differ; two
+tickets for one order; one ticket number twice
+400 JSON Error
+More than one ticket when the URL names one;
+URL and body ticket numbers differ; a URL
+ticket number that isn't a whole number above
+0
+400 API URL inconsistant with body
+A new order_num with no order block; an
+extra product the plant doesn't have
+404 Record not found.
+POST of a ticket the plant already has 	409 Http POST - Record already
+exists.
+Mix change on an order with loads 	409 Order already has loads.
+Ticket started or canceled; ticket number open
+on another order; Canceled order; truck
+deleted at the plant
+409 Conflicts with what is stored.
+Concrete Rhino REST API Specification
+Page 28 of 35
+
+-- 28 of 35 --
+
+14.3 Removing a ticket
+DELETE tickets/<ticket_num> removes the ticket if it hasn't started batching. It has no
+body.
+{
+"request_status": { "status": 200, "msg": "OK", "detail": "Ok" },
+"ticket": { "ticket_num": 100051, "order_num": "445676", "result":
+"deleted" }
+}
+A ticket that has started batching or was canceled gets 409; an unknown ticket gets
+404 Record not found.
+The order and its billable extras are left as they are. Send the corrected order_qty
+with the next ticket.
+An order with no tickets left stays open. If the job is off, cancel it with orderstatus .
+15. Loads and batch results
+Loads are made at the plant, or sent by dispatch as tickets (section 14). The resources
+here only read them. Two resources return them: loads in dispatch terms, and
+batchresults in quality-control terms.
+15.1 Loads
+GET loads/ : every load that isn't canceled, oldest first. In this form order_num is "" .
+GET loads/<date> or loads/<from>/<to> : loads made on those days, not canceled.
+GET loads/<ticket> : the newest load with that ticket number, whatever its status, as
+a one-element array. A ticket number can be reused once its load is finished, so older
+loads with the number are history.
+loadslist/ in place of loads/ gives short listitem records with no batched
+weights, in an array named loadslist . This works with a date, a range or a ticket.
+"Not canceled" means status below 6. A load the operator aborted and then finished
+by hand counts as Complete.
+{ "request_status": {...},
+"loads": [ { "loads": {
+"load": { "ticket": 100050, "order_num": "445676", ... },
+"batchcomponents": [ { "batchcomponent": {...} } ] } } ] }
+Concrete Rhino REST API Specification
+Page 29 of 35
+
+-- 29 of 35 --
+
+Each array element is wrapped in "loads" , which holds the load's fields in "load" and
+its batched weights in "batchcomponents" beside it. Under orderloads each element is
+just {"load": {...}} , with no batchcomponents . A load whose truck, driver, customer
+or order record was deleted is still returned, with those names blank.
+Short listitem records carry plantcode , order_num , ticket , status , load_date ,
+load_time , load_size and mix_code .
+Load field 	Meaning
+plantcode 	This plant
+order_num 	The order the load is for
+ticket 	Ticket number
+status 	1 Initialized, 2 Pending, 3 Ready, 4 Started, 5
+Complete, 6 Canceled
+load_date , load_time 	YYYY-MM-DD , HH:MM:SS
+load_size 	Load size
+mix_code , mix_id , mix_descr 	The load's mix
+truck_id , driver_id , driver_name ,
+driver_phone
+Truck and driver
+deliv_stat_id , deliv_stat 	Delivery status, as an id and a name
+batches 	Number of batches
+hundred_wts 	Hundredweights of cement
+water_in_truck , water_adjust ,
+water_trim
+Water
+message 	Message on the ticket
+last 	1 if this is the order's last load
+returned_qty 	Concrete returned
+customer_name 	Customer
+batch_man 	Who batched it
+Concrete Rhino REST API Specification
+Page 30 of 35
+
+-- 30 of 35 --
+
+15.2 Batch results
+GET batchresults/<date> or batchresults/<from>/<to> : every load made on those
+days that isn't canceled, including loads not batched yet (their bt_resultid is 0).
+GET batchresults/<mix_code>/<from>/<to> : the same, for one mix.
+GET batchresults/<ticket> : the newest load with that ticket number, as a single
+"batchresult": {...} .
+GET batchresults/ : every load on the computer that isn't canceled. This can be very
+large; use a date range or result ids (section 15.3).
+batchresultlist/ in place of batchresults/ gives short listitem records:
+bt_ticket , bt_loaddate , bt_loadtime , bt_loadsize , bt_mixcode and
+bt_resultid . It takes the same dates, mix and ticket codes; a ticket gives a one-
+element array.
+{ "request_status": {...},
+"batchresults": [ { "batchresult": {
+"batchinfo": { "bt_ticket": 100050, ... },
+"batchcomponents": [ { "batchcomponent": {...} } ] } } ] }
+batchcomponent field 	Meaning
+bc_ticket 	Ticket number
+bc_matcode , bc_mattype Material code and type (section 10)
+bc_design 	Mix design amount
+bc_target 	Target for this load
+bc_actual 	Amount batched
+bc_unit 	Unit code (section 11)
+bc_freemoisture 	Free moisture %
+batchinfo field 	Meaning
+bt_ticket 	Ticket number
+bt_plantcode 	This plant
+Concrete Rhino REST API Specification
+Page 31 of 35
+
+-- 31 of 35 --
+
+15.3 Collecting new batch results
+Software that collects batch results should poll by result id rather than by date. Each
+result then arrives once, in the order loads finished batching.
+Result id. Each finished load has a result id, bt_resultid , in its batchinfo . Ids rise in
+the order loads finish batching, so a load queued early but batched late gets a higher id
+than loads that finished before it. A load that hasn't finished has 0.
+Ping. GET status/ returns the plant's identity, clock and versions, and
+newest_result_id . GET status/<result_id> also returns results_pending , the
+number of results newer than that id.
+New results. GET batchresults/since/<result_id> returns the finished results
+newer than that id, oldest first, at most 100 per reply. "more" is always sent: 1 means
+the page was full, so ask again from the last bt_resultid received. When nothing is
+newer the reply is 204 with an empty array. Every result counted in results_pending
+is returned, including loads whose truck, driver or order was later deleted.
+batchresultlist/since/<result_id> returns short listitem records instead.
+Many readers. The plant keeps no record of what has been read, so several programs
+can poll one plant, each with its own last id. Polling doesn't affect a Universal Link
+connection on the same plant.
+batchinfo field 	Meaning
+bt_mixcode 	Mix code
+bt_custcode 	The customer's record id (a number, not
+cust_code ); 0 if the customer record is gone
+bt_jobcode 	Order number
+bt_loaddate , bt_loadtime 	YYYY-MM-DD , HH:MM:SS
+bt_loadsize 	Load size
+bt_waterintruck 	Water in the truck
+bt_watertrim 	The load's water adjustment
+bt_batcher , bt_truck , bt_driver Who batched it, truck number, driver
+bt_resultid 	Result id, for collecting new results (section 15.3); 0
+if the load hasn't finished
+Concrete Rhino REST API Specification
+Page 32 of 35
+
+-- 32 of 35 --
+
+GET /rhino_rest_api/v1/json/status/2
+{
+"request_status": { "status": 200, "msg": "OK", "detail": "Ok" },
+"status": { "plant_code": "101", "plant_name": "North Yard", "plant_time":
+"2026-10-19 12:35:51",
+"api_version": "v1", "software_version": "1.4.10.6",
+"newest_result_id": 3, "results_pending": 1 }
+}
+A collecting program should:
+1. Keep the highest bt_resultid it has received, starting at 0. Starting at 0 returns every
+result on the plant computer, which can be a lot.
+2. Call GET status/<last id> as often as it needs. When results_pending is above 0,
+call GET batchresults/since/<last id> , store the results, and save the last
+bt_resultid . Repeat while "more" is 1.
+3. Once a day, also read the day by date ( batchresults/<date> ). A load finished by hand
+on the load screen after an interruption keeps the result id of its last batch, which can
+be older than results already received.
+16. Limitations
+Keys over plain HTTP. Over plain HTTP an API key can be read by anyone on the
+network path. Use HTTPS or Tailscale for any connection that leaves the plant's local
+network (section 4.1).
+status field 	Meaning
+plant_code , plant_name This plant
+plant_time 	The plant computer's clock, YYYY-MM-DD HH:MM:SS
+local time
+api_version 	v1
+software_version 	The Concrete Rhino software version
+newest_result_id 	Highest result id on the plant, 0 if none
+results_pending 	Only with status/<result_id> : results newer
+than that id
+Concrete Rhino REST API Specification
+Page 33 of 35
+
+-- 33 of 35 --
+
+HTTP status is always 200. The real result is in request_status.status . The
+exception is a URL that doesn't have the API's form at all (such as
+/rhino_rest_api/v1/json/ ), which gets the web server's own 404 page.
+Codes containing / (such as 3/4 Rock ) can't go in a URL, even as %2F . Leave the
+URL code off and send the code in the body.
+Plants blank fields that aren't sent, and plant records are written one at a time without
+a transaction (section 8).
+cust_udf2 means discount on GET and price tier on PUT (section 9).
+New orders get tax region 2, whatever the customer's region. Check tax on orders
+created through the API.
+Day-first dates can't be told from month-first ones (section 7). Send YYYY-MM-DD .
+batchresults/ with no date returns every load on the computer. Use a date range or
+result ids.
+Plant computers not yet updated may answer a URL that ends in / with an empty
+reply or 400 Unsupported format . Leave the trailing slash off for those plants.
+Not available: DELETE of anything but a ticket, creating materials, projects, customer
+search, and truck delivery times in batch results.
+Tickets need a plant update made after 2026-10-19, and the behaviour in revision 2026-
+10-20 needs one made after 2026-10-20. Older plants answer tickets/ with 404.
+A ticket sent without ticket_num can't be changed or removed through the API. Send
+a ticket number whenever dispatch has one.
+Concrete Rhino REST API Specification
+Page 34 of 35
+
+-- 34 of 35 --
+
+Appendix A. Revision history
+Revision 	Changes
+2026-10-20 Checked against the plant software and corrected.
+Fixed the loads reply shape (section 15.1) and the
+read-only key reply (403 Forbidden ).
+loads/<ticket> and batchresults/<ticket>
+return the newest load with that number. Order
+price reads back the order's own mix price.
+Codes that pick a record are refused when too
+long, not cut. Customers and mixes deleted at the
+plant are refused. Resent tickets keep the load's
+mix and the billable line's price. Added the ticket
+error replies, driver rules, num_loads , the mix filter
+on batch results, plant rules, date and time parsing,
+and the key lockout details.
+2026-10-19 Added tickets (section 14), the JSON mix design
+upload (section 11.1), and order slump , notes and
+mix_price . DELETE is allowed for tickets. Added
+the status ping, result ids and new-result polling
+(section 15.3). Added API key authentication
+(section 4.1): every request needs a key.
+Reorganized as a formal specification.
+2026-10-14 First edition: plants, customers, materials, mixes
+(read), orders, order status, order loads, loads and
+batch results.
+Concrete Rhino REST API Specification
+Page 35 of 35
+
+-- 35 of 35 --
+

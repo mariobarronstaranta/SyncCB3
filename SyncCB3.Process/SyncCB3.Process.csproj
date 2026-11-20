@@ -1,0 +1,14 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SyncCB3.DataAceess\SyncCB3.DataAceess.csproj" />
+    <ProjectReference Include="..\SyncCB3.Entity\SyncCB3.Entity.csproj" />
+  </ItemGroup>
+
+</Project>

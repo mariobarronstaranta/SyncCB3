@@ -1,0 +1,1449 @@
+Especificación de la API REST de Concrete
+Rhino
+Oct 20, 2026 · @Chris Kranich
+Automation Logic, LLC publica esta especificación para los desarrolladores de software
+de terceros que se conectan con el Concrete Rhino Automated Batching System (sistema
+automatizado de dosificación de concreto).
+Si esta traducción y la versión en inglés difieren, rige la versión en inglés.
+1. Propósito
+Esta especificación define la API REST que el software de terceros usa para intercambiar
+datos con un Concrete Rhino Automated Batching System. El software de despacho, de
+oficina y de control de calidad puede usarla para enviar a una planta pedidos, tickets
+(remisiones), clientes, diseños de mezcla y datos de materiales, y para leer sus pedidos,
+cargas y resultados de dosificación.
+Está escrita para los desarrolladores que construyen esa interfaz. Describe cada recurso,
+campo, regla y respuesta que la planta admite; lo que no describe no está admitido.
+Concepto 	Valor
+Documento 	Especificación de la API REST de Concrete Rhino
+(traducción al español de la Concrete Rhino REST
+API Specification)
+Editor 	Automation Logic, LLC
+Sistema 	Concrete Rhino Automated Batching System
+Versión de la API v1
+Basada en 	BCQCI versión 3.4 (noviembre de 2017),
+desarrollada con Stonemont Solutions
+Revisión 	2026-10-20 (ver Apéndice A)
+Especificación de la API REST de Concrete Rhino
+Page 1 of 40
+
+-- 1 of 40 --
+
+2. Relación con BCQCI
+La API es una rama de BCQCI, la Interface Specification Between Concrete
+Batching/Dispatching Software and Quality Control/Mix Design Software (especificación
+de interfaz entre el software de dosificación/despacho de concreto y el software de
+control de calidad/diseño de mezclas), desarrollada con Stonemont Solutions (versión 3.4,
+noviembre de 2017).
+Se conserva de BCQCI: los nombres de los recursos, los nombres de registros y
+campos ( mix_code , mc_quantity , bt_ticket y los demás), los códigos de unidad y
+de tipo de material, y el bloque de respuesta request_status .
+Cambia: cada computadora de planta responde solo por sí misma, así que las URLs no
+llevan código de planta. El formato admitido es JSON.
+Se agrega: pedidos, estado de pedidos, cargas de pedidos y tickets, que BCQCI 3.4 no
+define; la carga de diseños de mezcla en JSON; el campo de respuesta error_detail ;
+las escrituras de todo o nada; el ping de estado con ids de resultado para recolectar
+resultados nuevos; y la autenticación con clave de API. Los tickets funcionan como el
+comando de ticket de la interfaz Universal Link (ULink).
+No implementado: los elementos de BCQCI que aparecen en Limitaciones (sección
+16).
+3. Convenciones
+Debe indica un requisito. Una solicitud que no lo cumple se rechaza, por lo general con
+el motivo en error_detail .
+Debería indica una recomendación.
+Los nombres de campos, los nombres de recursos y los valores literales aparecen en
+tipo code . Los <ángulos> marcan un valor que proporciona quien llama.
+Los nombres de campos, recursos y rutas, y los marcadores de las rutas, se dejan en
+inglés tal como los usa la planta: <code> es un código, <date> una fecha, <from> y
+<to> el inicio y el fin de un rango, y <ticket> un número de ticket.
+La planta responde en inglés. Los textos de msg , detail y error_detail se citan
+aquí tal como llegan, sin traducir.
+Los códigos de los ejemplos (planta 101 , pedido 445676 , mezcla 3000INT ) son
+valores de muestra.
+Especificación de la API REST de Concrete Rhino
+Page 2 of 40
+
+-- 2 of 40 --
+
+4. Transporte y métodos
+Cada computadora de planta ejecuta su propia copia de la API y responde solo por sí
+misma. El software que atiende varias plantas se comunica con cada una en su propia
+dirección.
+Transporte: HTTP en el puerto web de la computadora de la planta (8080, salvo que la
+planta se haya configurado de otro modo).
+Formato: JSON. Todo cuerpo de solicitud y toda respuesta es un objeto JSON.
+Versión: v1 . Forma parte de cada URL.
+Métodos: GET lee. PUT actualiza un registro, o lo crea si no existe. POST solo crea.
+DELETE elimina un ticket que no ha empezado a dosificarse, y nada más.
+Autenticación: una clave de API en cada solicitud (sección 4.1).
+Prueba de conexión: GET status/ responde siempre que la API de la computadora de
+planta esté funcionando (sección 15.3).
+Los nombres de campo van en minúsculas y distinguen mayúsculas de minúsculas. Los
+campos que este documento no menciona se ignoran.
+4.1 Autenticación
+Toda solicitud debe llevar una clave de API creada en la planta. Una solicitud sin clave
+válida recibe 401, y no se lee ni se escribe nada.
+Cómo enviar la clave. Colóquela en el encabezado Authorization : Authorization:
+Bearer rk_… . También se acepta el encabezado X-API-Key: rk_… . La clave distingue
+mayúsculas de minúsculas: envíela exactamente como la mostró la planta.
+Cómo obtener una clave. La planta crea y elimina claves en su pantalla Settings > API
+Keys. Cada programa debería tener su propia clave, para poder eliminar una sin
+detener a los demás.
+Se muestra una sola vez. La planta muestra la clave solo al crearla y guarda únicamente
+un hash. Una clave perdida no se puede recuperar: la planta la elimina y crea una nueva.
+Acceso. Una clave es de solo lectura (GET) o de lectura y escritura (GET, PUT, POST y
+DELETE). Una clave de solo lectura que envía algo distinto de GET recibe 403
+Forbidden .
+Formato. Una clave es rk_ seguido de 64 dígitos hexadecimales en minúsculas. Trátela
+como una contraseña: no la ponga en URLs, bitácoras ni código fuente.
+Especificación de la API REST de Concrete Rhino
+Page 3 of 40
+
+-- 3 of 40 --
+
+Claves incorrectas. Después de 10 solicitudes fallidas desde una misma dirección,
+contando las que llegan sin clave, esa dirección se rechaza hasta que pase un minuto
+desde su primer fallo, incluso con una clave correcta. Una solicitud correcta no reinicia
+la cuenta. Los programas detrás de un mismo proxy o gateway comparten su dirección
+y, por lo tanto, su bloqueo.
+Respuestas. Toda respuesta 401 y 403 trae un error_detail con el motivo: sin clave,
+clave incorrecta o eliminada, demasiadas claves incorrectas, o clave de solo lectura. Si
+la base de datos de la planta está ocupada al revisar la clave, la respuesta es 503
+Database is busy.
+Cifrado. En la red local de la planta funciona HTTP simple. Toda conexión desde fuera
+de ella debería usar HTTPS o una conexión Tailscale a la planta, para que la clave no
+pueda leerse en tránsito.
+curl -H "Authorization: Bearer rk_<su clave>" http://<dirección de la
+planta>:8080/rhino_rest_api/v1/json/status/
+5. URLs
+Toda solicitud va a http://<dirección de la
+planta>:8080/rhino_rest_api/v1/json/<resource>/<code>/<code2> . Las partes de
+código son opcionales, y su significado depende del recurso.
+URL 	Método Qué hace
+plants/ 	GET 	Todos los registros de planta
+guardados aquí
+plants/<code> 	GET 	La planta propia de esta
+computadora, sea cual sea el
+código
+plants/ o plants/<code> 	PUT,
+POST
+Agregar, actualizar o renombrar
+registros de planta
+customers/ 	GET 	Todos los clientes
+customers/<cust_code> 	GET 	Un cliente
+customers/ o customers/<cust_code> 	PUT,
+POST
+Crear o actualizar clientes
+Especificación de la API REST de Concrete Rhino
+Page 4 of 40
+
+-- 4 of 40 --
+
+URL 	Método Qué hace
+customerlist/ 	GET 	Código y nombre de cada cliente
+materials/ 	GET 	Todos los materiales
+materials/<mat_code> 	GET 	Un material
+materials/ o materials/<mat_code> 	PUT 	Actualizar materiales
+materiallist/ 	GET 	Código, nombre y tipo de cada
+material
+mixdesigns/ 	GET 	Todas las mezclas con sus
+componentes
+mixdesigns/<mix_code> 	GET 	Una mezcla
+mixdesignlist/ 	GET 	Código y nombre de cada mezcla
+mixdesigns/ o mixdesigns/<mix_code> 	PUT,
+POST
+Crear mezclas o reemplazar su
+diseño
+orders/ 	GET 	Pedidos abiertos (estado 1–5)
+orders/<date> o orders/<from>/<to> 	GET 	Pedidos solicitados para esos
+días, en cualquier estado
+orders/<order_num> 	GET 	Un pedido
+orders/ o orders/<order_num> 	PUT,
+POST
+Crear o actualizar pedidos
+orderslist/… 	GET 	Igual que orders , en forma corta
+orderstatus/<order_num> 	GET 	El estado de un pedido
+orderstatus/ o
+orderstatus/<order_num>
+PUT 	Cambiar el estado de pedidos
+orderloads/<order_num> 	GET 	Un pedido con sus cargas
+orderloadslist/<order_num> 	GET 	Igual, con las cargas en forma
+corta
+tickets/ o tickets/<ticket_num> 	PUT,
+POST
+Enviar o cambiar tickets: cargas
+listas para dosificar
+Especificación de la API REST de Concrete Rhino
+Page 5 of 40
+
+-- 5 of 40 --
+
+Fechas en una URL: van como YYYY-MM-DD (año-mes-día). Todo código con la forma
+NNNN-NN-NN se lee como fecha, así que no use números de pedido con esa forma. Bajo
+orders , cualquier otro código es un número de pedido; bajo loads y batchresults
+debe ser un número de ticket, un entero mayor que 0, o la respuesta es 400. Un rango de
+URL 	Método Qué hace
+tickets/<ticket_num> 	DELETE Eliminar un ticket que no ha
+empezado a dosificarse
+loads/ 	GET 	Todas las cargas que no están
+canceladas
+loads/<date> o loads/<from>/<to> 	GET 	Cargas hechas en esos días
+loads/<ticket> 	GET 	La carga más reciente con ese
+número de ticket
+loadslist/… 	GET 	Igual que loads , en forma corta
+batchresults/ 	GET 	Todas las cargas no canceladas,
+con los pesos dosificados
+batchresults/<date> o
+batchresults/<from>/<to>
+GET 	Resultados de dosificación de
+esos días
+batchresults/<mix_code>/<from>/<to> 	GET 	Resultados de dosificación de
+una mezcla en esos días
+batchresults/<ticket> 	GET 	La carga más reciente con ese
+número de ticket
+batchresultlist/… 	GET 	Igual que batchresults , en
+forma corta
+batchresults/since/<result_id> 	GET 	Resultados terminados después
+de ese id de resultado;
+batchresultlist/since/… para
+la forma corta
+status/ o status/<result_id> 	GET 	Ping: identidad de la planta, reloj,
+versiones, id de resultado más
+reciente y resultados pendientes
+Especificación de la API REST de Concrete Rhino
+Page 6 of 40
+
+-- 6 of 40 --
+
+fechas abarca días completos; un inicio posterior al fin devuelve 400, y
+orders/<from>/<to> admite como máximo 93 días. orderstatus/ y orderloads/
+necesitan un número de pedido (400 sin él).
+Una diagonal final no importa: orders y orders/ son lo mismo.
+Las cadenas de consulta ( ?name=value ) se aceptan, pero ningún recurso las usa todavía.
+Los códigos con caracteres especiales deben codificarse para URL: D & M es
+D%20%26%20M . El signo más debe enviarse como %2B ; un + sin codificar se lee como
+espacio. Un código que contiene / no puede usarse en una URL, ni siquiera codificado. En
+ese caso use el campo de código del cuerpo (sección 16).
+Las formas cortas ( …list ) devuelven los mismos registros con menos campos, cada uno
+envuelto en listitem en lugar del nombre propio del registro.
+6. Respuestas
+Toda respuesta empieza con un bloque request_status . Revise
+request_status.status , no la línea de estado HTTP, que siempre es 200.
+{
+"request_status": { "status": 400, "msg": "BAD REQUEST", "detail": "Unknown
+mix_code." },
+"error_detail": "Order 445676: mix 3000XX not found."
+}
+status es un número al estilo HTTP. msg es su nombre.
+detail indica el tipo de resultado. Varios resultados comparten un mismo status , así
+que use detail para distinguirlos.
+error_detail aparece solo cuando algo se rechazó. Dice en palabras simples, en
+inglés, qué registro y qué campo fallaron. Muéstrelo al usuario o guárdelo en una
+bitácora; no compare su redacción.
+En un GET, los registros vienen después de request_status (ver cada recurso).
+status msg 	detail 	Cuándo
+200 	OK 	Ok 	El GET encontró registros, o el
+DELETE eliminó un ticket
+Especificación de la API REST de Concrete Rhino
+Page 7 of 40
+
+-- 7 of 40 --
+
+status msg 	detail 	Cuándo
+201 	CREATED 	Created 	El PUT o POST creó al menos
+un registro
+201 	UPDATED 	Updated 	El PUT solo cambió registros
+existentes
+204 	NO CONTENT 	Database query did not
+return any results.
+El GET no encontró nada
+400 	BAD REQUEST 	JSON Error 	Un campo no se puede leer, un
+valor está fuera de rango, un
+código es demasiado largo,
+falta un campo obligatorio, o el
+cuerpo no trae un arreglo con
+el nombre del recurso
+400 	BAD REQUEST 	API URL inconsistant
+with body
+La URL y el cuerpo no
+coinciden; la URL está mal
+formada; falta un código
+necesario; o un código no es
+una fecha ni un número de
+ticket donde se necesita uno
+400 	BAD REQUEST 	Unknown cust_code. 	El pedido indica un cliente que
+la planta no tiene, o uno
+eliminado en la planta
+400 	BAD REQUEST 	Unknown mix_code. 	El pedido indica una mezcla
+que la planta no tiene, o una
+eliminada en la planta
+400 	BAD REQUEST 	Unsupported format. 	El formato de la URL no es
+json (ni xml , que esta
+especificación no cubre)
+400 	BAD REQUEST 	(ninguno) 	PUT o POST con el cuerpo
+vacío, o con un cuerpo que no
+es JSON válido
+Especificación de la API REST de Concrete Rhino
+Page 8 of 40
+
+-- 8 of 40 --
+
+status msg 	detail 	Cuándo
+401 	UNAUTHORIZED 	No log in. 	Sin clave de API, con una clave
+incorrecta o eliminada, o con
+demasiadas claves incorrectas
+desde esta dirección (sección
+4.1)
+403 	FORBIDDEN 	Forbidden 	Una clave de solo lectura que
+envía algo distinto de GET
+(sección 4.1)
+403 	FORBIDDEN 	plant_code is not this
+plant.
+El código de planta de un
+registro no es el de esta planta
+404 	NOT FOUND 	Record not found. 	PUT a un material o a un
+estado de pedido que no
+existe; un ticket cuyo pedido,
+producto extra o número de
+ticket no está en la planta; un
+componente de mezcla cuyo
+material no está en la planta
+404 	NOT FOUND 	Unsupported resource. 	PUT o POST a plants/<code>
+de una planta que no existe
+404 	NOT FOUND 	(ninguno) 	Nombre de recurso
+desconocido
+405 	METHOD NOT
+ALLOWED
+(ninguno) 	DELETE de cualquier cosa que
+no sea un ticket
+409 	CONFLICT 	Http POST - Record
+already exists.
+POST de un registro que ya
+existe, POST a orderstatus , o
+un cambio de nombre a un
+código en uso
+409 	CONFLICT 	Order already has loads. 	Cambio de mezcla en un
+pedido que ya tiene cargas o
+que pasó de Weather
+Especificación de la API REST de Concrete Rhino
+Page 9 of 40
+
+-- 9 of 40 --
+
+Las filas (ninguno) traen solo status y msg .
+7. Reglas de datos
+Un PUT cambia solo los campos que envía; todo campo que omite conserva su valor
+guardado.
+Enviado con un valor: se reemplaza el valor guardado.
+Enviado como "" : un campo de texto queda en blanco. Un código en blanco
+( cust_code , mix_code , order_num , un código de planta) cuenta como no enviado.
+No enviado: no cambia nada. En un registro nuevo el campo toma su valor
+predeterminado.
+status msg 	detail 	Cuándo
+409 	CONFLICT 	Conflicts with what is
+stored.
+Un código eliminado en la
+planta; un código que ya usa
+otro producto; un material
+enviado con otro tipo; un
+nombre de cliente ya en uso;
+un ticket que ya empezó a
+dosificarse o fue cancelado, un
+ticket para un pedido
+cancelado, un número de
+ticket todavía abierto en otro
+pedido, un camión eliminado
+en la planta; una mezcla que se
+está dosificando, o un
+componente de mezcla
+enviado con otro tipo
+409 	CONFLICT 	Database Error. 	La base de datos rechazó la
+escritura
+501 	NOT
+IMPLEMENTED
+(ninguno) 	Cualquier otro método HTTP
+503 	SERVICE
+UNAVAILABLE
+Database is busy. 	La base de datos de la planta
+está ocupada; intente de
+nuevo
+Especificación de la API REST de Concrete Rhino
+Page 10 of 40
+
+-- 10 of 40 --
+
+Cuerpo de la solicitud. El cuerpo de un PUT o POST es un arreglo con el nombre del
+recurso, con cada registro envuelto en su nombre en singular: {"orders": [{"order":
+{...}}, {"order": {...}}]} . Una solicitud puede llevar muchos registros, excepto
+cuando la URL indica un código: entonces el arreglo debe tener exactamente uno.
+Todo o nada. La planta revisa todos los registros antes de escribir alguno. Si uno se
+rechaza, no se guarda nada de la solicitud y error_detail indica el registro ("Record 3:
+...", o el código cuando la URL indica uno, como "Ticket 100050: ..."). Los registros que pasan
+se escriben juntos en una sola transacción. Las plantas son la excepción (sección 8).
+Qué registro. Cuando la URL indica un código, ese código elige el registro y el código del
+cuerpo puede renombrarlo. Sin código en la URL, el código del cuerpo elige el registro.
+Los números pueden enviarse como números JSON o como cadenas: 5 , 5.0 y "5" son
+lo mismo. true y false cuentan como 1 y 0, y null o "" cuentan como no enviado. Una
+cadena que no es número se rechaza con un error_detail que indica el campo. Los
+campos de número entero aceptan 5.0 pero no 5.5 . Use punto decimal, no coma.
+Las fechas en un cuerpo pueden ser YYYY-MM-DD , MM-DD-YYYY o MM/DD/YYYY (mes antes
+que día), con o sin ceros a la izquierda, para los años 2000 a 2099. Importante para México:
+la planta no distingue una fecha con el día primero (día/mes/año, la costumbre local) de
+una con el mes primero. 05-03-2026 se lee como 3 de mayo, no como 5 de marzo, y solo se
+rechaza cuando el día pasa de 12 ( 19-03-2026 ). Envíe siempre YYYY-MM-DD . Las
+respuestas siempre usan YYYY-MM-DD .
+Las horas pueden ser H:MM , HH:MM o HH:MM:SS , en formato de 24 horas, y nada más:
+8:00 PM y 8:5 se rechazan. Se guardan al minuto.
+Longitud del texto. El texto más largo de lo que admite un campo se recorta, excepto los
+códigos que eligen un registro ( order_num , mix_code , mc_code , truck_num ,
+driver_name ), que se rechazan con 400. Los límites se dan con cada recurso. Se cuentan
+en bytes, así que una letra acentuada o una ñ ocupa dos.
+Las respuestas envían algunos números como cadenas (por ejemplo
+"mat_dosagetype": "0" ). Lea cada campo de modo que funcione con cualquiera de las
+dos formas.
+Especificación de la API REST de Concrete Rhino
+Page 11 of 40
+
+-- 11 of 40 --
+
+8. Plantas
+Cada computadora de planta tiene un código de planta propio (por ejemplo 101 ). Todo
+mat_plantcode , cust_plantcode y plant_code de pedido que usted envíe se compara
+contra él.
+GET plants/ devuelve todos los registros de planta guardados en esta computadora,
+excepto los eliminados:
+{ "request_status": {...}, "plants": [ { "plant": { "plant_code": "101",
+"plant_name": "Kenai, AK", "plant_address": "Kenai, AK" } } ] }
+GET plants/<code> devuelve la planta propia de esta computadora como un solo objeto
+"plant": {...} , sea cual sea el código indicado.
+PUT o POST plants/ agrega un registro de planta, o con PUT actualiza el que tiene el
+mismo plant_code ; un POST de una planta existente devuelve 409. PUT plants/<code>
+actualiza la planta con ese código, y un plant_code distinto en el cuerpo la renombra; sin
+él, el código se conserva. Un código desconocido devuelve 404 Unsupported resource.
+Las plantas funcionan distinto de los demás recursos:
+Un campo omitido queda en blanco, no se conserva (excepto el código, como se indica
+arriba).
+Los registros se escriben uno por uno, en orden, sin transacción. El primer registro que
+falla detiene la solicitud; los anteriores quedan guardados, y error_detail lo indica.
+Cambiar el código de la planta propia de esta computadora cambia el código contra el
+que se revisan todas las demás solicitudes.
+Campo 	Tipo 	Notas
+plant_code 	texto, hasta 7 	Obligatorio en PUT/POST; un código en la URL
+cuenta. Se compara sin distinguir mayúsculas de
+minúsculas
+plant_name 	texto, hasta 47
+plant_address texto, hasta 95
+Especificación de la API REST de Concrete Rhino
+Page 12 of 40
+
+-- 12 of 40 --
+
+9. Clientes
+PUT crea un cliente que no existe y actualiza uno que sí existe. POST solo crea. Los
+códigos de cliente se comparan exactos, pero sin distinguir mayúsculas de minúsculas:
+cash encuentra Cash . Un cliente eliminado en la planta no aparece en GET, y un PUT o
+POST de su código devuelve 409 Conflicts with what is stored. El mismo cliente dos
+veces en una solicitud se rechaza (400).
+Campo 	GET 	PUT/POST 	Notas
+cust_code 	sí 	obligatorio 	Hasta 15 caracteres.
+Opcional en el cuerpo
+cuando la URL indica el
+cliente
+cust_name 	sí 	obligatorio en un
+cliente nuevo
+Hasta 64. Dos clientes no
+pueden tener el mismo
+nombre, comparado con
+mayúsculas y minúsculas
+(409)
+cust_first_name sí: el nombre
+completo del
+contacto
+sí 	Se une con cust_last_name
+en un solo nombre de
+contacto, hasta 64. Enviar
+cualquiera de los dos
+reemplaza todo el nombre
+del contacto con lo que se
+envió
+cust_last_name 	no 	sí 	Ver cust_first_name
+cust_address 	sí 	sí 	La dirección de facturación,
+hasta 95
+cust_bill_to 	no 	sí 	Dirección de facturación;
+tiene prioridad sobre
+cust_address si se envían
+ambos
+cust_phone 	sí 	sí 	Hasta 31
+cust_mobile 	sí 	sí 	Hasta 31
+cust_fax 	sí 	sí 	Hasta 31
+Especificación de la API REST de Concrete Rhino
+Page 13 of 40
+
+-- 13 of 40 --
+
+GET customers/ devuelve "customers": [{"customer": {...}}] , ordenado por tipo
+de crédito y luego por código. GET customers/<code> devuelve un solo "customer":
+{...} . GET customerlist/ devuelve "customerlist": [{"listitem": {"cust_code":
+..., "cust_name": ...}}] .
+Los clientes nuevos empiezan como COD, nivel de precio 1, sin descuento y sin exención
+de impuestos. El descuento y la exención de impuestos no se pueden fijar por la API, y un
+PUT nunca los cambia.
+Cambio de nombre: PUT customers/Cash con "cust_code": "CASH2" en el cuerpo
+renombra al cliente. Renombrar a un código que ya está en uso devuelve 409, y un cambio
+que solo modifica mayúsculas o minúsculas del código se ignora. Cuando el cliente de la
+URL no existe, el código del cuerpo debe coincidir con el de la URL (400 si no).
+PUT /rhino_rest_api/v1/json/customers/
+{ "customers": [ { "customer": {
+"cust_code": "JF100", "cust_name": "Johnson Flatwork",
+"cust_first_name": "Mike", "cust_last_name": "Johnson",
+"cust_address": "3211 Providence Dr, Anchorage, AK 99508",
+"cust_phone": "907-555-0100", "cust_udf1": 1 } } ] }
+Pregunta abierta: cust_udf2 se lee como el descuento, pero se escribe como el nivel de
+precio. Un cliente de la API que lee un registro y lo envía de vuelta puede recibir 400 (un
+descuento fuera de 1–3) o fijar un nivel equivocado. Mientras esto no se resuelva, no envíe
+Campo 	GET 	PUT/POST 	Notas
+cust_email 	sí 	sí 	Hasta 63
+cust_udf1 	sí 	sí 	Tipo de crédito: 1 crédito, 2
+COD (pago contra entrega),
+3 mal crédito. Cualquier otro
+valor devuelve 400
+cust_udf2 	sí: descuento 	sí: nivel de
+precio 1–3
+Ver la pregunta abierta más
+abajo
+cust_plantcode 	no 	opcional 	Si se envía, debe ser el
+código de esta planta (403 si
+no)
+cust_id 	no 	opcional 	Id de registro para un cliente
+nuevo
+Especificación de la API REST de Concrete Rhino
+Page 14 of 40
+
+-- 14 of 40 --
+
+cust_udf2 .
+10. Materiales
+Los materiales se pueden leer y actualizar, pero no crear: cada uno está ligado a una tolva
+y al cableado de la planta. Un PUT o POST de un material desconocido devuelve 404, y un
+POST de uno conocido devuelve 409, así que POST nunca tiene éxito. Los códigos de
+material distinguen mayúsculas de minúsculas, a diferencia de los de clientes y mezclas.
+Campo 	GET 	PUT 	Notas
+mat_code 	sí 	obligatorio 	Hasta 19 caracteres. Opcional en
+el cuerpo cuando la URL indica el
+material; en ese caso un código
+distinto lo renombra. Un código
+que ya usa otro producto
+devuelve 409
+mat_name 	sí 	se ignora 	Igual que mat_code
+mat_plantcode 	sí 	opcional 	Si se envía, debe ser el código de
+esta planta (403 si no)
+mat_type 	sí 	opcional 	Código de tipo (tabla siguiente).
+Debe pertenecer a la familia del
+tipo guardado; otra familia o un
+código desconocido devuelve
+409
+mat_source 	sí 	sí 	Hasta 9 caracteres
+mat_spgr 	sí 	sí 	Gravedad específica, mayor que
+0 y como máximo 10
+mat_absorption 	sí, en todo
+material
+solo
+agregados
+Absorción %
+mat_totalmoisture sí, en todo
+material
+solo
+agregados
+Humedad total %
+Especificación de la API REST de Concrete Rhino
+Page 15 of 40
+
+-- 15 of 40 --
+
+GET materials/ devuelve "materials": [{"material": {...}}] . GET
+materials/<code> devuelve un solo "material": {...} . GET materiallist/ devuelve
+"materiallist": [{"listitem": {"mat_code", "mat_name", "mat_type"}}] .
+Un PUT nunca cambia la configuración de dosificación de un material, su costo, su
+descripción, su configuración de inventario, ni la secuencia y el retardo de un aditivo.
+PUT /rhino_rest_api/v1/json/materials/Agg1
+{ "materials": [ { "material": {
+"mat_plantcode": "101", "mat_code": "Sand", "mat_type": 3,
+"mat_source": "Pit 22", "mat_spgr": 2.61,
+"mat_absorption": 1.2, "mat_totalmoisture": 4.4 } } ] }
+Esto renombra Agg1 a Sand y fija su origen, gravedad específica, absorción y humedad.
+Campo 	GET 	PUT 	Notas
+mat_dosagetype 	aditivos: 0 o 1;
+otros: "0"
+solo aditivos 0 por yd³/m³; 1 o 2 por quintal
+(100 lb) de cemento, ambos se
+guardan y se leen como 1. 3 (por
+carga) devuelve 400
+mat_ssd 	agregados 	se ignora 	Siempre "1" (SSS, saturado
+superficialmente seco)
+mat_order 	siempre 0 	se ignora
+mat_price 	sí 	se ignora
+mat_type Significado 	Lo que envía GET
+1, 2, 3 	Agregado grueso, fino, cualquier agregado 	3: todo agregado
+4, 5, 6 	Cemento, sustituto de cemento, cualquier
+cementante
+6: todo cemento y ceniza
+volante
+7 	Aditivo 	7
+8 	Agua 	8
+Especificación de la API REST de Concrete Rhino
+Page 16 of 40
+
+-- 16 of 40 --
+
+11. Mezclas
+Las mezclas se pueden leer, crear y cambiar. Un PUT o POST usa la misma forma que
+devuelve GET, así que una mezcla se puede leer, editar y enviar de vuelta (sección 11.1).
+GET mixdesigns/ devuelve todas las mezclas, y GET mixdesigns/<mix_code> devuelve
+una como un solo objeto "mixdesign". La forma de lista es así:
+{ "request_status": {...},
+"mixdesigns": [ { "mixdesign": {
+"mixinfo": { "mix_plantcode": "101", "mix_code": "3000INT", ... },
+"mixcomponents": [ { "mixcomponent": { "mc_code": "Cem1", ... } } ] } }
+] }
+GET mixdesignlist/ devuelve "mixdesignlist": [{"listitem": {"mix_code",
+"mix_name"}}] .
+Campo de mixinfo Significado
+mix_plantcode 	Código de esta planta
+mix_code 	Código de la mezcla, hasta 19 caracteres
+mix_name 	Descripción
+mix_unittype 	0 sistema inglés (yd³), 1 métrico (m³)
+mix_maxsize 	Carga máxima
+mix_slump 	Revenimiento
+mix_price 	Precio por unidad
+mix_mixtime 	Tiempo de mezclado, minutos
+mix_air 	Factor de aire
+mix_ssd 	0 pesos secos al horno, 1 SSS (saturado
+superficialmente seco)
+mix_yield 	Rendimiento
+mix_notes 	Notas
+Especificación de la API REST de Concrete Rhino
+Page 17 of 40
+
+-- 17 of 40 --
+
+Campo de mixcomponent Significado
+mc_mixcode 	Código de la mezcla
+mc_code 	Código del material
+mc_name 	Nombre del material
+mc_type 	Tipo de material (sección 10)
+mc_quantity 	Cantidad por yd³ o m³
+mc_unit 	Código de unidad (abajo)
+mc_order 	Orden de dosificación
+mc_source 	Origen del material
+mc_spgr 	Gravedad específica
+mc_absorption 	Absorción %
+Código de unidad Unidad
+2 	pies
+6 	libras
+7 	toneladas cortas
+10 	onzas líquidas
+11 	galones
+16 	yardas cúbicas
+26 	horas
+106 	kilogramos
+107 	toneladas métricas
+110 	mililitros
+111 	litros
+116 	metros cúbicos
+Especificación de la API REST de Concrete Rhino
+Page 18 of 40
+
+-- 18 of 40 --
+
+11.1 Envío de una mezcla
+PUT mixdesigns/ o mixdesigns/<mix_code> crea una mezcla que no existe y cambia una
+que sí existe. POST solo crea. El cuerpo tiene la forma que devuelve GET, dentro de un
+arreglo mixdesigns :
+PUT /rhino_rest_api/v1/json/mixdesigns/4000EXT
+{ "mixdesigns": [ { "mixdesign": {
+"mixinfo": { "mix_code": "4000EXT", "mix_name": "4000 PSI Exterior",
+"mix_price": 131.50,
+"mix_slump": 5, "mix_mixtime": 1.5, "mix_air": 6,
+"mix_notes": "air entrained" },
+"mixcomponents": [
+{ "mixcomponent": { "mc_code": "Sand", "mc_quantity": 1800 } },
+{ "mixcomponent": { "mc_code": "Cement", "mc_quantity": 564 } },
+{ "mixcomponent": { "mc_code": "Water", "mc_quantity": 32 } },
+{ "mixcomponent": { "mc_code": "AEA", 	"mc_quantity": 22.5 } } ] } }
+] }
+Código de unidad Unidad
+0 	ninguna u otra
+Especificación de la API REST de Concrete Rhino
+Page 19 of 40
+
+-- 19 of 40 --
+
+Campo de
+mixinfo
+Mezcla nueva 	Cambio 	Notas
+mix_code 	obligatorio 	renombra la mezcla Hasta 19 caracteres; uno
+más largo se rechaza. Se
+compara sin distinguir
+mayúsculas de minúsculas.
+Se toma de la URL cuando la
+URL lo indica; un código
+distinto en el cuerpo
+renombra la mezcla, pero
+debe coincidir con la URL si
+la mezcla no existe (400). Un
+código que tiene otro
+producto, o una mezcla
+eliminada en la planta,
+devuelve 409. Un código
+que solo difiere en
+mayúsculas o minúsculas
+cambia esas letras en el
+código guardado
+mix_name 	obligatorio 	sí 	Hasta 63 caracteres
+mix_unittype 	predeterminado
+0
+solo con
+mixcomponents
+0 sistema inglés (yd³), 1
+métrico (m³). Cualquier otro
+valor devuelve 400
+mix_price 	predeterminado
+0
+sí 	Precio por unidad, 0 o más
+mix_slump 	predeterminado
+4
+sí 	0 o más
+mix_maxsize 	predeterminado
+10
+sí 	Carga máxima, mayor que 0
+mix_mixtime 	predeterminado
+0
+sí 	Minutos, 0 o más
+mix_air 	predeterminado
+0
+sí 	Factor de aire, 0 o más
+Especificación de la API REST de Concrete Rhino
+Page 20 of 40
+
+-- 20 of 40 --
+
+Campo de
+mixinfo
+Mezcla nueva 	Cambio 	Notas
+mix_ssd 	predeterminado
+1
+sí 	0 pesos secos al horno, 1
+SSS. Cualquier otro valor
+devuelve 400
+mix_yield 	predeterminado
+1
+sí 	0 o más
+mix_notes 	opcional 	sí 	Hasta 63 caracteres
+mix_plantcode 	opcional 	opcional 	Si se envía, debe ser el
+código de esta planta (403 si
+no)
+Especificación de la API REST de Concrete Rhino
+Page 21 of 40
+
+-- 21 of 40 --
+
+Omita mixcomponents para cambiar solo mixinfo . Si lo envía, es el diseño completo:
+todo componente que no aparezca se quita de la mezcla. Una lista vacía se rechaza
+(400).
+Una mezcla nueva necesita mix_name y al menos un componente.
+Cambiar mix_unittype requiere mixcomponents en la misma solicitud, con las
+cantidades en las nuevas unidades.
+Una mezcla puede tener hasta 24 componentes, cada material una sola vez (400 si no).
+La misma mezcla dos veces en una solicitud se rechaza (400).
+Una mezcla que se está dosificando en ese momento devuelve 409. Intente de nuevo
+cuando termine la carga. Las cargas en cola para la mezcla se conservan.
+Una mezcla eliminada en la planta no aparece en GET, y un PUT o POST de su código
+devuelve 409.
+Campo de mixcomponent 	Notas
+mc_code 	Obligatorio, hasta 19 caracteres. Un material
+de la planta, escrito como lo devuelve GET
+materials/ (404 si no). Debe ser agregado,
+cemento, agua o aditivo (400 si no)
+mc_quantity 	Obligatorio, 0 o más. Mismo significado que
+en GET
+mc_unit 	Opcional. Si se envía, debe ser la unidad que
+la planta usa para ese material (400 si no): 6
+libras para agregados, cemento y agua
+pesada, 11 galones para agua medida, 10
+onzas líquidas para aditivos. Las mezclas
+métricas usan 106, 111 y 110
+mc_order 	Opcional, 0 o más. Orden de dosificación; sin
+él, el lugar del componente en la lista
+mc_type 	Opcional. Si se envía, debe ser la familia del
+material (409 si no)
+mc_mixcode 	Opcional. Si se envía, debe ser el código de la
+mezcla, el anterior o el nuevo (400 si no)
+mc_name , mc_source , mc_spgr ,
+mc_absorption
+Se ignoran. Cámbielos con PUT materials/
+Especificación de la API REST de Concrete Rhino
+Page 22 of 40
+
+-- 22 of 40 --
+
+Los pedidos y las cargas siguen ligados a una mezcla renombrada.
+La respuesta es 201 Created si la solicitud creó al menos una mezcla nueva; si no, 201
+Updated .
+12. Pedidos
+Un pedido se identifica por su número, order_num , que es el número propio del sistema
+de despacho. PUT crea un pedido que no existe y actualiza uno que sí existe, incluido PUT
+orders/<order_num> con un número nuevo. POST solo crea.
+12.1 Envío de un pedido
+Campo 	Pedido nuevo 	Actualización 	Notas
+order_num 	obligatorio 	opcional 	Hasta 31 caracteres; uno
+más largo se rechaza. Se
+toma de la URL cuando la
+URL lo indica; el cuerpo
+debe entonces coincidir
+(400 si no)
+cust_code 	obligatorio 	cambia el cliente 	Un cliente existente,
+comparado sin distinguir
+mayúsculas de
+minúsculas. Un código que
+la planta no tiene, o un
+cliente eliminado en la
+planta, recibe 400
+Unknown cust_code.
+mix_code 	obligatorio 	cambia la mezcla 	Una mezcla existente,
+comparada sin distinguir
+mayúsculas de
+minúsculas. Un código que
+la planta no tiene, o una
+mezcla eliminada en la
+planta, recibe 400
+Unknown mix_code. Ver
+"Cambio de mezcla"
+Especificación de la API REST de Concrete Rhino
+Page 23 of 40
+
+-- 23 of 40 --
+
+Campo 	Pedido nuevo 	Actualización 	Notas
+quantity 	obligatorio 	cambia la cantidad Mayor que 0. La mezcla y
+sus extras por yarda la
+siguen; los extras por
+carga siguen a num_loads
+status_id 	opcional,
+predeterminado 1
+cambia el estado 	1–7 (tabla más abajo). Un
+pedido nuevo no puede
+empezar en 6 ni en 7
+wanted_date 	opcional 	sí 	Una fecha, o una fecha con
+hora ( "2025-03-19
+13:30" ). "" cuenta como
+no enviado, así que una
+fecha solicitada no se
+puede borrar
+wanted_time 	opcional 	sí 	Si solo se envía la fecha, la
+hora es 06:00. Una hora
+sola conserva la fecha del
+pedido; en un pedido
+nuevo, una hora sola se
+ignora
+load_size 	opcional 	sí 	Mayor que 0. Envíelo: un
+pedido nuevo sin él queda
+con tamaño de carga 0
+num_loads 	opcional 	sí 	Mayor que 0. No se
+guarda. Cuando cambia
+quantity , fija la cantidad
+de los extras por carga del
+pedido; sin él, la planta usa
+quantity ÷ load_size ,
+redondeado hacia arriba
+delivery_addrs opcional 	sí 	Hasta 95 caracteres
+po_num 	opcional 	sí 	Hasta 31 caracteres
+plant_code 	opcional 	opcional 	Si se envía, debe ser el
+código de esta planta (403
+si no)
+Especificación de la API REST de Concrete Rhino
+Page 24 of 40
+
+-- 24 of 40 --
+
+PUT /rhino_rest_api/v1/json/orders/
+{ "orders": [ { "order": {
+"order_num": "445676", "plant_code": "101", "cust_code": "Cash",
+"delivery_addrs": "3211 Providence Dr, Anchorage, AK 99508",
+"wanted_date": "2025-03-19", "wanted_time": "13:30",
+"mix_code": "3000INT", "quantity": 5, "load_size": 5, "num_loads": 1 } }
+] }
+La respuesta es 201 Created si la solicitud creó al menos un pedido nuevo; si no, 201
+Updated .
+Un pedido nuevo toma su precio de la mezcla, salvo que se envíe mix_price . El tiempo de
+traslado (15 min) y el espaciamiento (30 min) son valores fijos, no configuraciones de la
+planta; la planta puede cambiarlos en la pantalla de pedidos. Los pedidos nuevos reciben
+la región de impuestos 2 (sección 16).
+Cambio de mezcla: solo se permite mientras el pedido no tiene cargas y su estado es
+Send, Will call o Weather (1–3). Si no, la respuesta es 409 Order already has loads. y no
+se guarda nada.
+Campo 	Pedido nuevo 	Actualización 	Notas
+slump 	opcional,
+predeterminado 3
+sí 	Revenimiento objetivo, un
+número
+notes 	opcional 	sí 	Instrucciones de entrega,
+hasta 255 caracteres
+mix_price 	opcional 	cambia el precio
+de la mezcla
+Precio por unidad de la
+mezcla, 0 o más. Sin él, un
+pedido nuevo toma el
+precio de catálogo de la
+mezcla
+status_id Estado
+1 	Send: enviar (nuevo)
+2 	Will call: el cliente avisará
+3 	Weather: en espera por clima
+4 	Loading: cargando
+Especificación de la API REST de Concrete Rhino
+Page 25 of 40
+
+-- 25 of 40 --
+
+Pasar un pedido a Complete o Canceled también quita sus cargas que no han empezado y
+estaciona las que ya empezaron, igual que hacerlo en la pantalla de pedidos. Cancelar
+también devuelve al inventario los extras inventariados del pedido.
+12.2 Lectura de pedidos
+GET orders/ : pedidos abiertos (estado 1–5), el más próximo primero según la hora
+solicitada menos el tiempo de traslado. Los pedidos sin fecha solicitada van primero.
+GET orders/<date> o orders/<from>/<to> : pedidos solicitados para esos días, en
+cualquier estado, como máximo 93 días. Un inicio posterior al fin devuelve 400.
+GET orders/<order_num> : un pedido, como un solo "order": {...} .
+orderslist/ en lugar de orders/ da registros listitem con solo order_num ,
+status_id , qty_required y qty_remaining .
+Un pedido tal como se lee no se puede enviar de vuelta sin cambios: trae el nombre del
+cliente, no cust_code .
+status_id Estado
+5 	On hold: suspendido
+6 	Complete: terminado
+7 	Canceled: cancelado
+Campo 	Significado
+order_num 	Número de pedido
+status_id 	Estado (tabla anterior)
+qty_required 	Cantidad pedida
+qty_remaining 	Pedida pero aún no programada como carga.
+Las cargas en cola cuentan como
+programadas
+wanted_date 	"YYYY-MM-DD HH:MM" , o "" si no se dio
+load_size 	Tamaño de carga
+customer 	Nombre del cliente
+Especificación de la API REST de Concrete Rhino
+Page 26 of 40
+
+-- 26 of 40 --
+
+13. Estado de pedidos y cargas de pedidos
+13.1 Estado de pedidos
+PUT orderstatus/ cambia el estado de pedidos existentes y nada más. Cada registro
+necesita order_num (o el orderstatus/<order_num> de la URL, con el que el cuerpo
+debe entonces coincidir) y status_id 1–7. Un plant_code , si se envía, debe ser el de
+esta planta (403 si no). Todos los demás campos se ignoran, incluso los que no se pueden
+leer.
+Campo 	Significado
+contact , phone_number , cell_number ,
+discount
+Del registro del cliente
+mix_id , mix_code , description 	La mezcla del pedido
+price 	El precio por unidad de la mezcla en este
+pedido: el mix_price enviado o el precio
+fijado en la pantalla de pedidos; si no hay, el
+precio de catálogo de la mezcla cuando se
+creó el pedido. Antes del descuento del
+cliente
+slump , metric 	Del pedido y de la mezcla
+mix_time 	Tiempo de mezclado, en segundos
+( mix_mixtime de las mezclas está en
+minutos)
+travel_time , spacing 	Minutos
+po_num , delivery_addrs , notes 	Texto
+return_allowed , cash , backtoback , plus ,
+estimate , project_id , use_cert ,
+use_report
+Configuraciones del pedido en la planta
+last_load_start 	Cuándo empezó a dosificarse la carga más
+reciente, o ""
+Especificación de la API REST de Concrete Rhino
+Page 27 of 40
+
+-- 27 of 40 --
+
+PUT /rhino_rest_api/v1/json/orderstatus/
+{ "orderstatus": [ { "order": { "order_num": "445676", "status_id": 6 } } ] }
+Un pedido desconocido devuelve 404 Record not found. , y no se guarda nada de la
+solicitud.
+POST devuelve 409; use PUT.
+La respuesta es 201 Updated .
+GET orderstatus/<order_num> devuelve el pedido con todos los campos de Pedidos,
+como un arreglo de un elemento: "orderstatus": [{"order": {...}}] . Un pedido
+desconocido devuelve 204 con un arreglo vacío, y orderstatus/ sin número de pedido
+devuelve 400.
+13.2 Cargas de pedidos
+GET orderloads/<order_num> devuelve el pedido con todas sus cargas:
+{ "request_status": {...},
+"order": { "order_num": "445676", "status_id": 4, ...,
+"loads": [ { "load": { "ticket": 100050, "load_size": 7, ... } }
+] } }
+Los campos del pedido son los mismos que en Pedidos. Los campos de carga aparecen
+en Cargas.
+Se devuelven todas las cargas del pedido. Un pedido sin cargas devuelve "loads":
+[] . Cuente el arreglo para saber el número de cargas.
+Un pedido desconocido devuelve 204, y orderloads/ sin número de pedido devuelve
+400.
+orderloadslist/<order_num> devuelve lo mismo, con cada carga como un listitem
+corto.
+14. Tickets
+Un ticket (remisión) es una carga de un pedido, puesta en cola en la planta lista para
+dosificar. PUT tickets/ o tickets/<ticket_num> agrega un ticket, o lo cambia cuando la
+planta ya tiene ese número de ticket y no ha empezado a dosificarse. POST solo agrega.
+Una misma solicitud también puede crear el pedido, el camión y el operador.
+Especificación de la API REST de Concrete Rhino
+Page 28 of 40
+
+-- 28 of 40 --
+
+Los tickets funcionan como el comando de ticket de la interfaz Universal Link (ULink). Un
+mensaje lleva una carga con su pedido, cliente, camión, operador, productos extra y
+totales del ticket, y la planta la pone en cola lista para dosificar. Las diferencias: reenviar
+un número de ticket cambia ese ticket en lugar de agregar una segunda carga, los
+productos desconocidos se rechazan en lugar de omitirse, y cada respuesta dice lo que
+hizo la planta.
+14.1 Envío de un ticket
+Campo 	Ticket nuevo 	Cambio 	Notas
+ticket_num 	opcional 	elige el ticket 	Entero mayor que 0. Se toma de
+la URL cuando la URL lo indica;
+el cuerpo debe entonces
+coincidir. Sin él, la planta numera
+el ticket al imprimirlo, el
+ticket_num de la respuesta es
+0, y la API no puede cambiarlo ni
+eliminarlo
+order_num 	obligatorio 	obligatorio 	El pedido al que pertenece el
+ticket, hasta 31 caracteres; uno
+más largo se rechaza
+load_size 	obligatorio 	lo cambia 	Mayor que 0
+truck_num 	obligatorio 	mueve el ticket 	Hasta 15 caracteres; uno más
+largo se rechaza. Se agrega en la
+planta si no existe
+driver_name opcional 	cambia el
+operador
+Hasta 15 caracteres; uno más
+largo se rechaza. Se agrega en la
+planta si no existe. Pasa a ser el
+operador de la carga y el del
+camión de la carga. Sin él, ver la
+sección 14.2
+message 	opcional 	sí 	Mensaje de la carga. Más de 255
+caracteres se recorta
+Especificación de la API REST de Concrete Rhino
+Page 29 of 40
+
+-- 29 of 40 --
+
+Los números de camión y los nombres de operador se comparan sin distinguir mayúsculas
+de minúsculas.
+Campo 	Ticket nuevo 	Cambio 	Notas
+order 	necesario para un
+pedido nuevo
+cambia el pedido 	Los campos de PUT orders. Un
+order_num nuevo necesita
+cust_code , mix_code y
+quantity
+extras 	opcional 	reemplaza los
+extras del ticket
+Hasta 13 (tabla siguiente). Un
+arreglo vacío los quita
+totals 	opcional 	los reemplaza 	subtotal , tax ,
+cumulative_total ,
+grand_total , 0 o más. Se
+imprimen en el ticket; un 0 no se
+imprime
+Campo de extra 	Notas
+code 	Obligatorio. Un producto de la planta que no sea
+mezcla, comparado sin distinguir mayúsculas de
+minúsculas. No encontrado o eliminado en la
+planta: 404. Una mezcla: 400. Cada código una sola
+vez por ticket
+load_qty 	Cantidad en este ticket, 0 o más
+order_qty 	Total acumulado de todo el pedido, 0 o más. Fija la
+línea facturable del pedido para ese producto,
+reemplazando el total anterior en lugar de sumarse.
+Si se omite, la facturación no cambia
+price 	Precio unitario en el ticket; sin él, el precio de
+catálogo del producto. Si se envía, también pasa a
+ser el precio de la línea facturable del pedido. Sin él,
+una línea nueva toma el precio de catálogo y una
+existente conserva su precio
+amount 	Importe de la línea en el ticket, 0 o más. Sin él,
+load_qty × price
+Especificación de la API REST de Concrete Rhino
+Page 30 of 40
+
+-- 30 of 40 --
+
+La impresión del ticket tiene espacio para 7 caracteres de código, 15 de descripción y 3 de
+unidad. Los valores más largos se recortan solo en la impresión; la facturación usa el
+producto completo.
+PUT /rhino_rest_api/v1/json/tickets/100050
+{ "tickets": [ { "ticket": {
+"order_num": "445676", "load_size": 7, "truck_num": "12", "driver_name":
+"Steve",
+"message": "don't drive on grass",
+"order": { "cust_code": "JOHN01", "mix_code": "3000INT", "quantity": 14,
+"mix_price": 118.50, "slump": 5, "notes": "gate code 1234",
+"wanted_date": "2026-10-20", "wanted_time": "13:30" },
+"extras": [ { "code": "FUEL", "load_qty": 1, "order_qty": 1, "price":
+15.00,
+"description": "Fuel Surcharge", "unit": "EA" } ],
+"totals": { "subtotal": 844.50, "tax": 46.45, "grand_total": 890.95 } } }
+] }
+{
+"request_status": { "status": 201, "msg": "CREATED", "detail": "Created" },
+"tickets": [ { "ticket": { "ticket_num": 100050, "load_id": 1, "order_num":
+"445676",
+"result": "created", "added_at_plant": ["order 445676", "driver Steve",
+"truck 12"] } } ]
+}
+La respuesta es 201 Created si la solicitud agregó al menos un ticket; si no, 201 Updated .
+El result de cada ticket es created o updated , y added_at_plant enumera, en inglés,
+el pedido, el camión y el operador que agregó la solicitud. Revise esa lista: un error de
+dedo en un número de camión agrega un camión nuevo.
+14.2 Qué hace la planta con un ticket
+La carga queda en cola como Ready (estado 3, lista) en la pantalla de carga. El operador
+de la planta sigue siendo quien inicia la dosificación.
+Campo de extra 	Notas
+description , unit Se imprimen en el ticket. Sin descripción, se usa la
+del producto
+Especificación de la API REST de Concrete Rhino
+Page 31 of 40
+
+-- 31 of 40 --
+
+Volver a enviar un número de ticket cambia ese ticket. Solo cambian los campos
+enviados: los extras o totals omitidos se conservan, y la carga conserva su mezcla,
+incluso una cambiada en la pantalla de carga.
+Un ticket que ya empezó a dosificarse, o que fue cancelado en la planta, no se puede
+cambiar: 409 Conflicts with what is stored. , y no se guarda nada.
+Un número de ticket usado antes en otro pedido es historial si esa carga ya terminó, y
+se crea un ticket nuevo. Si esa carga no ha terminado, la respuesta es 409.
+Un ticket para un pedido que la planta marcó como Complete lo reabre (estado 4,
+Loading). Un ticket para un pedido Canceled recibe 409, salvo que su bloque order
+envíe un status_id nuevo.
+Un ticket no puede pasar su pedido a Complete ni a Canceled (400). Para eso use
+orderstatus .
+Un bloque order no puede cambiar la mezcla de un pedido que tiene cargas (409
+Order already has loads. ), así que un ticket reenviado nunca cambia su mezcla.
+Dos tickets del mismo pedido, o el mismo ticket dos veces, en una sola solicitud se
+rechazan (400). Envíelos en solicitudes separadas.
+Operadores. Un driver_name pasa a ser el operador de la carga y el del camión de la
+carga, igual que cuando la pantalla de carga cambia el operador de una carga. Sin él, un
+ticket que se mueve a otro camión toma el operador de ese camión, y enviar el mismo
+camión en que ya está la carga deja el operador como está.
+Camiones nuevos: reciben capacidad 12 (o el tamaño de la carga, si es mayor) y el
+operador del ticket; si no hay, el de la carga; si no, el primer operador de la planta
+(normalmente Unassigned). Una planta sin ningún operador recibe uno llamado
+Unassigned, que aparece en added_at_plant . Un número de camión que fue
+eliminado en la planta recibe 409.
+Los tickets rechazados reciben estas respuestas. error_detail indica el ticket ("Ticket
+9: ..."), o "Record N" cuando no tiene ticket_num .
+Caso 	Respuesta
+Sin arreglo tickets , o con uno vacío 	400 JSON Error
+Un campo que no se puede leer; una cantidad,
+precio, importe o total negativo; load_size 0 o
+menos; un código demasiado largo; el mismo
+código de extra dos veces; más de 13 extras
+400 JSON Error
+Especificación de la API REST de Concrete Rhino
+Page 32 of 40
+
+-- 32 of 40 --
+
+Los tickets se revisan uno tras otro, así que cuando un ticket anterior no pasa sus propias
+revisiones, su error es el que se devuelve.
+14.3 Eliminación de un ticket
+DELETE tickets/<ticket_num> elimina el ticket si no ha empezado a dosificarse. No
+lleva cuerpo.
+{
+"request_status": { "status": 200, "msg": "OK", "detail": "Ok" },
+"ticket": { "ticket_num": 100051, "order_num": "445676", "result":
+"deleted" }
+}
+Un ticket que ya empezó a dosificarse o fue cancelado recibe 409; un ticket
+desconocido recibe 404 Record not found.
+Caso 	Respuesta
+Un ticket nuevo sin load_size o sin
+truck_num ; un bloque order que pone
+Complete o Canceled; un extra que es una
+mezcla
+400 JSON Error
+order_num y order.order_num no coinciden;
+dos tickets de un mismo pedido; un número de
+ticket dos veces
+400 JSON Error
+Más de un ticket cuando la URL indica uno; los
+números de ticket de la URL y del cuerpo no
+coinciden; un número de ticket en la URL que no
+es un entero mayor que 0
+400 API URL inconsistant with body
+Un order_num nuevo sin bloque order ; un
+producto extra que la planta no tiene
+404 Record not found.
+POST de un ticket que la planta ya tiene 	409 Http POST - Record already
+exists.
+Cambio de mezcla en un pedido con cargas 	409 Order already has loads.
+Ticket iniciado o cancelado; número de ticket
+abierto en otro pedido; pedido Canceled;
+camión eliminado en la planta
+409 Conflicts with what is stored.
+Especificación de la API REST de Concrete Rhino
+Page 33 of 40
+
+-- 33 of 40 --
+
+El pedido y sus extras facturables se quedan como están. Envíe el order_qty
+corregido con el siguiente ticket.
+Un pedido sin tickets restantes sigue abierto. Si el colado se suspende, cancélelo con
+orderstatus .
+15. Cargas y resultados de dosificación
+Las cargas se crean en la planta, o las envía el despacho como tickets (sección 14). Los
+recursos de esta sección solo las leen. Dos recursos las devuelven: loads , en términos de
+despacho, y batchresults , en términos de control de calidad.
+15.1 Cargas
+GET loads/ : todas las cargas que no están canceladas, la más antigua primero. En
+esta forma order_num es "" .
+GET loads/<date> o loads/<from>/<to> : cargas hechas en esos días, no canceladas.
+GET loads/<ticket> : la carga más reciente con ese número de ticket, en cualquier
+estado, como un arreglo de un elemento. Un número de ticket puede reutilizarse
+cuando su carga termina, así que las cargas anteriores con ese número son historial.
+loadslist/ en lugar de loads/ da registros listitem cortos, sin pesos dosificados,
+en un arreglo llamado loadslist . Funciona con una fecha, un rango o un ticket.
+"No cancelada" significa estado menor que 6. Una carga que el operador abortó y luego
+terminó a mano cuenta como Complete.
+{ "request_status": {...},
+"loads": [ { "loads": {
+"load": { "ticket": 100050, "order_num": "445676", ... },
+"batchcomponents": [ { "batchcomponent": {...} } ] } } ] }
+Cada elemento del arreglo va envuelto en "loads" , que contiene los campos de la carga
+en "load" y, junto a ellos, sus pesos dosificados en "batchcomponents" . Bajo
+orderloads cada elemento es solo {"load": {...}} , sin batchcomponents . Una carga
+cuyo registro de camión, operador, cliente o pedido se eliminó se sigue devolviendo, con
+esos nombres en blanco.
+Campo de carga 	Significado
+plantcode 	Esta planta
+Especificación de la API REST de Concrete Rhino
+Page 34 of 40
+
+-- 34 of 40 --
+
+Los registros listitem cortos llevan plantcode , order_num , ticket , status ,
+load_date , load_time , load_size y mix_code .
+Campo de carga 	Significado
+order_num 	El pedido al que pertenece la carga
+ticket 	Número de ticket
+status 	1 Initialized (iniciada), 2 Pending
+(pendiente), 3 Ready (lista), 4 Started (en
+dosificación), 5 Complete (terminada), 6
+Canceled (cancelada)
+load_date , load_time 	YYYY-MM-DD , HH:MM:SS
+load_size 	Tamaño de carga
+mix_code , mix_id , mix_descr 	La mezcla de la carga
+truck_id , driver_id , driver_name ,
+driver_phone
+Camión y operador
+deliv_stat_id , deliv_stat 	Estado de entrega, como id y como nombre
+batches 	Número de bachadas
+hundred_wts 	Quintales (100 lb) de cemento
+water_in_truck , water_adjust ,
+water_trim
+Agua
+message 	Mensaje en el ticket
+last 	1 si es la última carga del pedido
+returned_qty 	Concreto devuelto
+customer_name 	Cliente
+batch_man 	Quién la dosificó
+Campo de batchcomponent Significado
+bc_ticket 	Número de ticket
+bc_matcode , bc_mattype 	Código y tipo de material (sección 10)
+Especificación de la API REST de Concrete Rhino
+Page 35 of 40
+
+-- 35 of 40 --
+
+15.2 Resultados de dosificación
+GET batchresults/<date> o batchresults/<from>/<to> : todas las cargas hechas en
+esos días que no están canceladas, incluidas las que aún no se dosifican (su
+bt_resultid es 0).
+GET batchresults/<mix_code>/<from>/<to> : lo mismo, para una mezcla.
+GET batchresults/<ticket> : la carga más reciente con ese número de ticket, como
+un solo "batchresult": {...} .
+GET batchresults/ : todas las cargas no canceladas de la computadora. Puede ser
+muy grande; use un rango de fechas o ids de resultado (sección 15.3).
+batchresultlist/ en lugar de batchresults/ da registros listitem cortos:
+bt_ticket , bt_loaddate , bt_loadtime , bt_loadsize , bt_mixcode y bt_resultid .
+Acepta las mismas fechas, mezcla y tickets; un ticket da un arreglo de un elemento.
+{ "request_status": {...},
+"batchresults": [ { "batchresult": {
+"batchinfo": { "bt_ticket": 100050, ... },
+"batchcomponents": [ { "batchcomponent": {...} } ] } } ] }
+Campo de batchcomponent Significado
+bc_design 	Cantidad del diseño de mezcla
+bc_target 	Objetivo para esta carga
+bc_actual 	Cantidad dosificada
+bc_unit 	Código de unidad (sección 11)
+bc_freemoisture 	Humedad libre %
+Campo de batchinfo 	Significado
+bt_ticket 	Número de ticket
+bt_plantcode 	Esta planta
+bt_mixcode 	Código de mezcla
+bt_custcode 	El id de registro del cliente (un número, no
+cust_code ); 0 si el registro del cliente ya no existe
+Especificación de la API REST de Concrete Rhino
+Page 36 of 40
+
+-- 36 of 40 --
+
+15.3 Recolección de resultados nuevos
+El software que recolecta resultados de dosificación debería consultar por id de
+resultado, no por fecha. Así cada resultado llega una sola vez, en el orden en que las cargas
+terminaron de dosificarse.
+Id de resultado. Cada carga terminada tiene un id de resultado, bt_resultid , en su
+batchinfo . Los ids crecen en el orden en que las cargas terminan de dosificarse, así
+que una carga puesta en cola temprano pero dosificada tarde recibe un id mayor que
+las que terminaron antes. Una carga que no ha terminado tiene 0.
+Ping. GET status/ devuelve la identidad, el reloj y las versiones de la planta, y
+newest_result_id . GET status/<result_id> también devuelve results_pending ,
+el número de resultados más nuevos que ese id.
+Resultados nuevos. GET batchresults/since/<result_id> devuelve los resultados
+terminados más nuevos que ese id, el más antiguo primero, como máximo 100 por
+respuesta. "more" siempre se envía: 1 significa que la página se llenó, así que pida de
+nuevo a partir del último bt_resultid recibido. Cuando no hay nada más nuevo, la
+respuesta es 204 con un arreglo vacío. Se devuelve todo resultado contado en
+results_pending , incluidas las cargas cuyo camión, operador o pedido se eliminó
+después. batchresultlist/since/<result_id> devuelve registros listitem cortos.
+Varios lectores. La planta no lleva registro de lo que ya se leyó, así que varios
+programas pueden consultar una misma planta, cada uno con su propio último id. Las
+consultas no afectan una conexión Universal Link en la misma planta.
+Campo de batchinfo 	Significado
+bt_jobcode 	Número de pedido
+bt_loaddate , bt_loadtime 	YYYY-MM-DD , HH:MM:SS
+bt_loadsize 	Tamaño de carga
+bt_waterintruck 	Agua en el camión
+bt_watertrim 	El ajuste de agua de la carga
+bt_batcher , bt_truck , bt_driver Quién dosificó, número de camión, operador
+bt_resultid 	Id de resultado, para recolectar resultados nuevos
+(sección 15.3); 0 si la carga no ha terminado
+Especificación de la API REST de Concrete Rhino
+Page 37 of 40
+
+-- 37 of 40 --
+
+GET /rhino_rest_api/v1/json/status/2
+{
+"request_status": { "status": 200, "msg": "OK", "detail": "Ok" },
+"status": { "plant_code": "101", "plant_name": "North Yard", "plant_time":
+"2026-10-19 12:35:51",
+"api_version": "v1", "software_version": "1.4.10.6",
+"newest_result_id": 3, "results_pending": 1 }
+}
+Un programa recolector debería:
+1. Guardar el bt_resultid más alto que haya recibido, empezando en 0. Empezar en 0
+devuelve todos los resultados de la computadora de planta, que pueden ser muchos.
+2. Llamar a GET status/<último id> tan seguido como lo necesite. Cuando
+results_pending sea mayor que 0, llamar a GET batchresults/since/<último id> ,
+guardar los resultados y guardar el último bt_resultid . Repetir mientras "more" sea
+1.
+3. Una vez al día, leer también el día por fecha ( batchresults/<date> ). Una carga
+terminada a mano en la pantalla de carga después de una interrupción conserva el id
+de resultado de su última bachada, que puede ser más antiguo que resultados ya
+recibidos.
+Campo de status 	Significado
+plant_code , plant_name Esta planta
+plant_time 	El reloj de la computadora de planta, YYYY-MM-DD
+HH:MM:SS en hora local
+api_version 	v1
+software_version 	La versión del software Concrete Rhino
+newest_result_id 	El id de resultado más alto de la planta, 0 si no hay
+results_pending 	Solo con status/<result_id> : resultados más
+nuevos que ese id
+Especificación de la API REST de Concrete Rhino
+Page 38 of 40
+
+-- 38 of 40 --
+
+16. Limitaciones
+Claves sobre HTTP simple. Sobre HTTP simple, cualquiera en la ruta de red puede leer
+una clave de API. Use HTTPS o Tailscale en toda conexión que salga de la red local de la
+planta (sección 4.1).
+El estado HTTP siempre es 200. El resultado real está en request_status.status . La
+excepción es una URL que no tiene en absoluto la forma de la API (como
+/rhino_rest_api/v1/json/ ), que recibe la página 404 propia del servidor web.
+Los códigos que contienen / (como 3/4 Rock ) no pueden ir en una URL, ni siquiera
+como %2F . Omita el código de la URL y envíelo en el cuerpo.
+Las plantas dejan en blanco los campos que no se envían, y los registros de planta se
+escriben uno por uno sin transacción (sección 8).
+cust_udf2 significa descuento en GET y nivel de precio en PUT (sección 9).
+Los pedidos nuevos reciben la región de impuestos 2, sea cual sea la región del
+cliente. Revise los impuestos de los pedidos creados por la API.
+Las fechas con el día primero no se distinguen de las que llevan el mes primero
+(sección 7). Envíe YYYY-MM-DD .
+batchresults/ sin fecha devuelve todas las cargas de la computadora. Use un rango
+de fechas o ids de resultado.
+Las computadoras de planta que aún no se actualizan pueden responder a una URL
+que termina en / con una respuesta vacía o con 400 Unsupported format . Omita la
+diagonal final con esas plantas.
+No disponible: DELETE de cualquier cosa que no sea un ticket, creación de materiales,
+proyectos, búsqueda de clientes, y tiempos de entrega de camiones en los resultados
+de dosificación.
+Los tickets requieren una actualización de la planta posterior al 2026-10-19, y el
+comportamiento de la revisión 2026-10-20 requiere una posterior al 2026-10-20. Las
+plantas anteriores responden a tickets/ con 404.
+Un ticket enviado sin ticket_num no se puede cambiar ni eliminar por la API. Envíe un
+número de ticket siempre que el despacho tenga uno.
+Los mensajes de la planta están en inglés: msg , detail , error_detail y
+added_at_plant .
+Especificación de la API REST de Concrete Rhino
+Page 39 of 40
+
+-- 39 of 40 --
+
+Apéndice A. Historial de revisiones
+Revisión 	Cambios
+2026-10-20 Revisada contra el software de la planta y
+corregida. Se corrigieron la forma de la respuesta
+de cargas (sección 15.1) y la respuesta para claves
+de solo lectura (403 Forbidden ). loads/<ticket>
+y batchresults/<ticket> devuelven la carga más
+reciente con ese número. El price de un pedido
+devuelve el precio de la mezcla propio del pedido.
+Los códigos que eligen un registro se rechazan
+cuando son demasiado largos, en lugar de
+recortarse. Se rechazan los clientes y las mezclas
+eliminados en la planta. Los tickets reenviados
+conservan la mezcla de la carga y el precio de la
+línea facturable. Se agregaron las respuestas de
+error de tickets, las reglas de operadores,
+num_loads , el filtro por mezcla en los resultados
+de dosificación, las reglas de plantas, la lectura de
+fechas y horas, y los detalles del bloqueo por
+claves incorrectas. Primera traducción al español.
+2026-10-19 Se agregaron los tickets (sección 14), la carga de
+diseños de mezcla en JSON (sección 11.1), y los
+campos de pedido slump , notes y mix_price . Se
+permite DELETE para tickets. Se agregaron el ping
+de estado, los ids de resultado y la consulta de
+resultados nuevos (sección 15.3). Se agregó la
+autenticación con clave de API (sección 4.1): toda
+solicitud necesita una clave. Se reorganizó como
+especificación formal.
+2026-10-14 Primera edición: plantas, clientes, materiales,
+mezclas (lectura), pedidos, estado de pedidos,
+cargas de pedidos, cargas y resultados de
+dosificación.
+Especificación de la API REST de Concrete Rhino
+Page 40 of 40
+
+-- 40 of 40 --
+

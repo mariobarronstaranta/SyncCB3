@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="SyncCB3.DataAceess/SyncCB3.DataAceess.csproj" Id="1ba6b78a-2695-4e4d-b393-1ae72ef444d3" />
+  <Project Path="SyncCB3.Entity/SyncCB3.Entity.csproj" Id="1420d3bc-6bde-4645-a4a4-4daa3866415f" />
+  <Project Path="SyncCB3.Process/SyncCB3.Process.csproj" Id="797c326b-f193-478a-84ea-0a0d5a586ee7" />
+  <Project Path="SyncCB3.RhinoMock/SyncCB3.RhinoMock.csproj" />
+  <Project Path="SyncCB3.UITest/SyncCB3.UITest.csproj" />
+</Solution>
